@@ -64,6 +64,22 @@ The repository can be the official `openwrt/openwrt` repository or any compatibl
 
 Source builds use `packages`, `feeds`, `git-packages`, and optional `files/`.
 
+#### Optional prebuilt toolchain
+
+A source profile may define `TOOLCHAIN_URL`:
+
+```text
+TOOLCHAIN_URL=https://downloads.openwrt.org/releases/25.12.5/targets/ath79/generic/openwrt-toolchain-25.12.5-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+```
+
+When this setting is present, the builder downloads and extracts the toolchain archive, detects the compiler prefix and GCC version, and configures OpenWrt with `CONFIG_EXTERNAL_TOOLCHAIN=y`.
+
+This skips rebuilding the target compiler toolchain on every clean source build, including GCC, binutils, libc, kernel headers, fortify headers, and GDB. The target kernel, kernel modules, selected packages, package build dependencies, and firmware image are still compiled from the configured source tree.
+
+The toolchain must be compatible with the selected OpenWrt source, target architecture, libc, and compiler ABI. Official OpenWrt toolchains matching the same release and target are the recommended choice.
+
+If `TOOLCHAIN_URL` is omitted, the normal OpenWrt internal toolchain is built from source.
+
 ### ImageBuilder build
 
 An ImageBuilder profile requires:
@@ -130,21 +146,15 @@ For `METHOD=source`, `feeds` uses standard OpenWrt feed syntax. Each non-comment
 ./scripts/feeds update -a
 ```
 
-The builder then installs only the packages listed for inclusion in the profile:
+The builder installs only the packages listed for inclusion in the profile:
 
 ```text
 ./scripts/feeds install <requested-package> ...
 ```
 
-OpenWrt resolves and installs the required feed dependencies recursively. Package names that belong to the OpenWrt core tree do not need to come from a feed.
+OpenWrt resolves dependencies for installed feed packages. The builder never runs `./scripts/feeds install -a`, so packages that are not selected by the profile are not registered just to make them available speculatively.
 
-If `git-packages` contains entries, the builder intentionally falls back to:
-
-```text
-./scripts/feeds install -a
-```
-
-This makes all feed packages available to externally loaded Git packages whose dependencies are not known to the builder in advance. `feeds install -a` registers packages in the OpenWrt source tree; it does not by itself compile every package.
+Package names that belong to the OpenWrt core tree do not need to come from a feed.
 
 Example:
 
@@ -191,6 +201,8 @@ https://github.com/example/openwrt-apps.git - luci-app-example
 The selected package directory is copied into the temporary OpenWrt source tree under `package/openwrt-builder/`.
 
 Adding a Git package only makes it available to OpenWrt. Add its OpenWrt package name to `packages` when it should be installed in the firmware.
+
+If an external Git package depends on packages from an OpenWrt feed, list those direct feed dependencies in `packages` as well. The builder deliberately does not install every feed package to guess dependencies for external source packages.
 
 For `METHOD=imagebuilder`, this file is ignored even when it contains entries.
 

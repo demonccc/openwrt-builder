@@ -21,6 +21,7 @@ WORK_DIR = ROOT / ".work"
 PROFILE_FILES = ("settings", "packages", "feeds", "git-packages")
 
 SOURCE_KEYS = ("METHOD", "REPOSITORY", "REF", "TARGET", "SUBTARGET", "DEVICE")
+SOURCE_OPTIONAL_KEYS = ("TOOLCHAIN_URL",)
 IMAGEBUILDER_KEYS = ("METHOD", "IMAGEBUILDER_URL", "DEVICE")
 
 
@@ -77,7 +78,11 @@ def parse_settings(path: Path) -> dict[str, str]:
         raise BuilderError(f"{path}: METHOD must be 'source' or 'imagebuilder'")
 
     required = SOURCE_KEYS if method == "source" else IMAGEBUILDER_KEYS
-    unknown = set(values) - set(required)
+    allowed = set(required)
+    if method == "source":
+        allowed.update(SOURCE_OPTIONAL_KEYS)
+
+    unknown = set(values) - allowed
     if unknown:
         raise BuilderError(f"{path}: unsupported keys for {method}: {', '.join(sorted(unknown))}")
 
@@ -210,20 +215,7 @@ def add_feeds(source_dir: Path, feeds: list[str]) -> None:
             handle.write(feed + "\n")
 
 
-def install_feed_packages(
-    source_dir: Path,
-    include: list[str],
-    git_packages: list[tuple[str, str | None, str]],
-) -> None:
-    if git_packages:
-        print(
-            "Git packages configured; installing all feed packages so external package "
-            "dependencies are available.",
-            flush=True,
-        )
-        run(["./scripts/feeds", "install", "-a"], cwd=source_dir)
-        return
-
+def install_feed_packages(source_dir: Path, include: list[str]) -> None:
     if not include:
         return
 
@@ -263,6 +255,58 @@ def install_git_packages(
             shutil.copytree(source, destination, ignore=shutil.ignore_patterns(".git"))
 
 
+def download_external_toolchain(
+    url: str,
+    destination: Path,
+) -> tuple[Path, str, str]:
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True)
+
+    archive = destination / "toolchain.tar.zst"
+    print(f"Downloading external toolchain: {url}")
+    with urllib.request.urlopen(url) as response, archive.open("wb") as handle:
+        shutil.copyfileobj(response, handle)
+
+    extract_dir = destination / "extract"
+    extract_dir.mkdir()
+    run(["tar", "--zstd", "-xf", str(archive), "-C", str(extract_dir)])
+
+    compilers = sorted(
+        path
+        for path in extract_dir.rglob("*-gcc")
+        if path.is_file() and path.parent.name == "bin"
+    )
+    musl_compilers = [path for path in compilers if path.name.endswith("-musl-gcc")]
+    if len(musl_compilers) == 1:
+        compiler = musl_compilers[0]
+    elif len(compilers) == 1:
+        compiler = compilers[0]
+    else:
+        candidates = ", ".join(str(path.relative_to(extract_dir)) for path in compilers)
+        raise BuilderError(
+            "Could not uniquely identify the external musl toolchain compiler "
+            f"(candidates: {candidates or 'none'})"
+        )
+
+    toolchain_root = compiler.parent.parent.resolve()
+    prefix = compiler.name.removesuffix("gcc")
+    if not prefix.endswith("-"):
+        raise BuilderError(f"Could not determine toolchain prefix from {compiler.name}")
+
+    gcc_version = subprocess.check_output(
+        [str(compiler), "-dumpfullversion"],
+        text=True,
+    ).strip()
+    if not gcc_version:
+        raise BuilderError("External toolchain compiler did not report a GCC version")
+
+    print(f"External toolchain root: {toolchain_root}")
+    print(f"External toolchain prefix: {prefix}")
+    print(f"External toolchain GCC: {gcc_version}")
+    return toolchain_root, prefix, gcc_version
+
+
 def copy_profile_files(profile_dir: Path, destination: Path) -> bool:
     source = profile_dir / "files"
     if not source.is_dir():
@@ -277,6 +321,7 @@ def write_source_config(
     settings: dict[str, str],
     include: list[str],
     exclude: list[str],
+    external_toolchain: tuple[Path, str, str] | None,
 ) -> None:
     target = settings["TARGET"]
     subtarget = settings["SUBTARGET"]
@@ -287,6 +332,22 @@ def write_source_config(
         f"CONFIG_TARGET_{target}_{subtarget}=y",
         f"CONFIG_TARGET_{target}_{subtarget}_DEVICE_{device}=y",
     ]
+
+    if external_toolchain:
+        toolchain_root, prefix, gcc_version = external_toolchain
+        target_name = prefix.removesuffix("-")
+        lines.extend(
+            [
+                "CONFIG_DEVEL=y",
+                "CONFIG_EXTERNAL_TOOLCHAIN=y",
+                f'CONFIG_TARGET_NAME="{target_name}"',
+                f'CONFIG_TOOLCHAIN_PREFIX="{prefix}"',
+                f'CONFIG_TOOLCHAIN_ROOT="{toolchain_root}"',
+                "CONFIG_EXTERNAL_TOOLCHAIN_LIBC_USE_MUSL=y",
+                f'CONFIG_EXTERNAL_GCC_VERSION="{gcc_version}"',
+            ]
+        )
+
     lines.extend(f"CONFIG_PACKAGE_{package}=y" for package in include)
     lines.extend(f"CONFIG_PACKAGE_{package}=n" for package in exclude)
     (source_dir / ".config").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -318,6 +379,10 @@ def validate_resolved_config(
     for symbol in target_symbols:
         if config_value(config, symbol) != "y":
             raise BuilderError(f"OpenWrt did not select required target symbol: {symbol}")
+
+    if settings.get("TOOLCHAIN_URL"):
+        if config_value(config, "CONFIG_EXTERNAL_TOOLCHAIN") != "y":
+            raise BuilderError("OpenWrt did not enable the requested external toolchain")
 
     errors: list[str] = []
     for package in include:
@@ -361,10 +426,19 @@ def build_from_source(
     clone_ref(settings["REPOSITORY"], ref, source_dir)
     add_feeds(source_dir, feeds)
     run(["./scripts/feeds", "update", "-a"], cwd=source_dir)
-    install_feed_packages(source_dir, include, git_packages)
+    install_feed_packages(source_dir, include)
     install_git_packages(source_dir, git_packages)
+
+    external_toolchain = None
+    toolchain_url = settings.get("TOOLCHAIN_URL")
+    if toolchain_url:
+        external_toolchain = download_external_toolchain(
+            toolchain_url,
+            WORK_DIR / profile_name / "toolchain",
+        )
+
     files_included = copy_profile_files(profile_dir, source_dir / "files")
-    write_source_config(source_dir, settings, include, exclude)
+    write_source_config(source_dir, settings, include, exclude, external_toolchain)
 
     run(["make", "defconfig"], cwd=source_dir)
     validate_resolved_config(source_dir, settings, include, exclude)
@@ -405,6 +479,20 @@ def build_from_source(
         f"EXCLUDE_PACKAGES={' '.join(exclude)}",
         f"FILES={'included' if files_included else 'none'}",
     ]
+
+    if external_toolchain:
+        _, prefix, gcc_version = external_toolchain
+        info.extend(
+            [
+                "TOOLCHAIN=external",
+                f"TOOLCHAIN_URL={toolchain_url}",
+                f"TOOLCHAIN_PREFIX={prefix}",
+                f"TOOLCHAIN_GCC_VERSION={gcc_version}",
+            ]
+        )
+    else:
+        info.append("TOOLCHAIN=internal")
+
     (output / "BUILD_INFO").write_text("\n".join(info) + "\n", encoding="utf-8")
 
 

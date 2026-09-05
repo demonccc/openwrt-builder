@@ -116,18 +116,35 @@ package-name  -> CONFIG_PACKAGE_package-name=y
 
 After `make defconfig`, the builder verifies that requested packages were selected and explicitly excluded packages were not enabled.
 
+The source build compiles the selected firmware packages and the dependencies required by OpenWrt. Packages merely present in a feed are not compiled unless they are selected or required as dependencies.
+
 ### ImageBuilder behavior
 
 For an ImageBuilder build, the same include/exclude list is passed through the native ImageBuilder `PACKAGES` argument.
 
 ## `feeds`
 
-For `METHOD=source`, `feeds` uses standard OpenWrt feed syntax. Each non-comment line is appended to `feeds.conf.default` before the builder runs:
+For `METHOD=source`, `feeds` uses standard OpenWrt feed syntax. Each non-comment line is appended to `feeds.conf.default` before feed metadata is updated:
 
 ```text
 ./scripts/feeds update -a
+```
+
+The builder then installs only the packages listed for inclusion in the profile:
+
+```text
+./scripts/feeds install <requested-package> ...
+```
+
+OpenWrt resolves and installs the required feed dependencies recursively. Package names that belong to the OpenWrt core tree do not need to come from a feed.
+
+If `git-packages` contains entries, the builder intentionally falls back to:
+
+```text
 ./scripts/feeds install -a
 ```
+
+This makes all feed packages available to externally loaded Git packages whose dependencies are not known to the builder in advance. `feeds install -a` registers packages in the OpenWrt source tree; it does not by itself compile every package.
 
 Example:
 

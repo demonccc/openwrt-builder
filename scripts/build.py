@@ -210,6 +210,27 @@ def add_feeds(source_dir: Path, feeds: list[str]) -> None:
             handle.write(feed + "\n")
 
 
+def install_feed_packages(
+    source_dir: Path,
+    include: list[str],
+    git_packages: list[tuple[str, str | None, str]],
+) -> None:
+    if git_packages:
+        print(
+            "Git packages configured; installing all feed packages so external package "
+            "dependencies are available.",
+            flush=True,
+        )
+        run(["./scripts/feeds", "install", "-a"], cwd=source_dir)
+        return
+
+    if not include:
+        return
+
+    print("Installing only requested feed packages and their dependencies.", flush=True)
+    run(["./scripts/feeds", "install", *include], cwd=source_dir)
+
+
 def install_git_packages(
     source_dir: Path,
     entries: list[tuple[str, str | None, str]],
@@ -340,7 +361,7 @@ def build_from_source(
     clone_ref(settings["REPOSITORY"], ref, source_dir)
     add_feeds(source_dir, feeds)
     run(["./scripts/feeds", "update", "-a"], cwd=source_dir)
-    run(["./scripts/feeds", "install", "-a"], cwd=source_dir)
+    install_feed_packages(source_dir, include, git_packages)
     install_git_packages(source_dir, git_packages)
     files_included = copy_profile_files(profile_dir, source_dir / "files")
     write_source_config(source_dir, settings, include, exclude)

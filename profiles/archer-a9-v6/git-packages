@@ -1,0 +1,28 @@
+# OpenWrt packages loaded directly from Git repositories.
+#
+# Format:
+# REPOSITORY [REF] [PATH]
+#
+# REPOSITORY  Required Git repository URL.
+# REF         Optional branch, tag, or commit. Use - for the repository's
+#             default branch when PATH is also specified.
+# PATH        Optional package directory inside the repository. Default: .
+#
+# Examples:
+#
+# Package at the repository root, default branch:
+# https://github.com/example/luci-app-example.git
+#
+# Package at the repository root, specific branch/tag/commit:
+# https://github.com/example/luci-app-example.git main
+#
+# Package inside a larger repository:
+# https://github.com/example/openwrt-apps.git main luci-app-example
+#
+# Package inside a larger repository using its default branch:
+# https://github.com/example/openwrt-apps.git - luci-app-example
+#
+# Adding a Git source only makes the package available to OpenWrt. Add the
+# package name to the `packages` file as well when it must be installed.
+#
+# Blank lines and comments starting with # are ignored.

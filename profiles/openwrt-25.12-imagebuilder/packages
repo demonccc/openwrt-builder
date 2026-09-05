@@ -1,0 +1,9 @@
+# Packages to include or exclude from the firmware image.
+#
+# One package per line.
+# package-name  -> include
+# -package-name -> exclude
+# #             -> comment
+#
+# ImageBuilder can only use packages that are already available as compiled
+# packages for the selected OpenWrt build.

@@ -1,0 +1,120 @@
+name: Build OpenWrt firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Profile directory name under profiles/
+        required: true
+        default: archer-a9-v6
+        type: string
+      runner:
+        description: Runner type
+        required: true
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted
+      source_ref:
+        description: Optional source branch, tag, or commit override for source builds
+        required: false
+        type: string
+      create_release:
+        description: Create a GitHub Release with the firmware files
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.profile }}-${{ inputs.source_ref || 'profile-ref' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner == 'self-hosted' && 'self-hosted' || 'ubuntu-24.04' }}
+
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+
+      - name: Detect build method
+        id: profile
+        env:
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          settings="profiles/${PROFILE}/settings"
+          if [[ ! -f "$settings" ]]; then
+            echo "Profile settings not found: $settings" >&2
+            exit 1
+          fi
+
+          method="$(sed -n 's/^[[:space:]]*METHOD[[:space:]]*=[[:space:]]*\([^#[:space:]]*\).*/\1/p' "$settings" | head -n1)"
+          case "$method" in
+            source|imagebuilder) ;;
+            *)
+              echo "Invalid or missing METHOD in $settings" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "method=$method" >> "$GITHUB_OUTPUT"
+          echo "Build method: $method"
+
+      - name: Free disk space for source build
+        if: ${{ inputs.runner == 'github-hosted' && steps.profile.outputs.method == 'source' }}
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h
+
+      - name: Install source build dependencies
+        if: ${{ steps.profile.outputs.method == 'source' }}
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ccache clang flex bison g++ gawk gettext git \
+            libncurses-dev libssl-dev python3-setuptools rsync swig unzip \
+            zlib1g-dev file wget libelf-dev zstd time
+
+      - name: Install ImageBuilder dependencies on self-hosted runner
+        if: ${{ inputs.runner == 'self-hosted' && steps.profile.outputs.method == 'imagebuilder' }}
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends make python3 tar zstd
+
+      - name: Build firmware
+        env:
+          PROFILE: ${{ inputs.profile }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          args=(build --profile "$PROFILE" --output artifact --jobs "$(nproc)")
+          if [[ -n "$SOURCE_REF" ]]; then
+            args+=(--source-ref "$SOURCE_REF")
+          fi
+          python3 scripts/build.py "${args[@]}"
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-${{ inputs.profile }}-${{ github.run_number }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create GitHub Release
+        if: ${{ inputs.create_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          tag="${PROFILE}-$(date -u +'%Y.%m.%d-%H%M')-${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" artifact/* \
+            --title "OpenWrt ${PROFILE}" \
+            --notes-file artifact/BUILD_INFO

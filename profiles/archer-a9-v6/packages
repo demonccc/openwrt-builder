@@ -1,0 +1,45 @@
+# Packages included in or excluded from the firmware.
+#
+# One package per line:
+# package-name   Include the package.
+# -package-name  Explicitly exclude the package.
+#
+# Blank lines and comments starting with # are ignored.
+# Inline comments are also supported.
+#
+# Only list packages that are intentionally selected or excluded.
+# OpenWrt resolves transitive dependencies automatically.
+
+# Web interface and networking
+luci
+dnsmasq-full
+ip-full
+iptables-nft
+wpad-mbedtls
+
+# Wireless
+kmod-ath10k
+ath10k-firmware-qca9984
+
+# Mesh
+batctl-full
+kmod-batman-adv
+luci-proto-batman-adv
+
+# USB storage
+kmod-usb-storage
+kmod-usb-storage-uas
+
+# Home automation and captive portal
+mosquitto-nossl
+mosquitto-client-nossl
+opennds
+
+# Utilities
+wget-ssl
+
+# Explicit replacements / exclusions
+-dnsmasq
+-wpad-basic-mbedtls
+-kmod-ath10k-ct
+-ath10k-firmware-qca9984-ct

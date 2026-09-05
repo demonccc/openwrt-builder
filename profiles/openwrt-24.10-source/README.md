@@ -8,6 +8,6 @@ Builds the OpenWrt 24.10 stable series directly from the official `openwrt/openw
 - Ref: `openwrt-24.10`
 - Source: official OpenWrt repository
 
-Use this profile when you need a 24.10-based source build for compatibility, maintenance or comparison with newer OpenWrt versions.
+This profile provides a generic 24.10 source-build base for compatibility, maintenance, or comparison with newer OpenWrt versions.
 
-It supports the full source-build feature set, including custom feeds, Git packages and optional embedded profile `files/`.
+See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.

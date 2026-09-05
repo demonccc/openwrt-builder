@@ -1,36 +1,49 @@
 # Profile reference
 
-A profile is a directory under `profiles/` containing four required plain text files:
+A profile is a directory under `profiles/` that describes one OpenWrt firmware build.
+
+For the workflow used to fork the repository, copy profiles, run builds, and use runners, see [Using OpenWrt Builder](usage.md).
+
+## Profile structure
+
+Required files:
 
 ```text
-settings
-packages
-feeds
-git-packages
+profiles/my-router/
+  settings
+  packages
+  feeds
+  git-packages
 ```
 
-A profile may also contain:
+Optional files and directories:
 
 ```text
-README.md
-files/
+profiles/my-router/
+  README.md
+  files/
 ```
 
-`README.md` documents the purpose of the profile and is ignored by the builder.
+The four required files are deliberately plain text. Blank lines and comments starting with `#` are ignored where applicable.
 
-`files/` is optional and embeds files or predefined configuration into the firmware filesystem.
+`README.md` is human documentation for that specific profile. It is not parsed by the builder.
 
-Blank lines and comments starting with `#` are ignored where the text file is used.
+`files/` contains files that should be embedded into the generated OpenWrt filesystem. It is optional and works with both build methods.
 
-Profiles support two build methods: `source` and `imagebuilder`.
+## Build methods
+
+Profiles support two methods:
+
+- `source`: clone an OpenWrt Git repository and compile the selected target, packages, and dependencies;
+- `imagebuilder`: download an existing OpenWrt ImageBuilder and assemble firmware from already-built packages.
+
+The method is selected in `settings` with `METHOD=source` or `METHOD=imagebuilder`.
 
 ## `settings`
 
 ### Source build
 
-Use `METHOD=source` to build OpenWrt directly from a Git repository.
-
-Required keys:
+A source profile requires:
 
 ```text
 METHOD=source
@@ -47,13 +60,13 @@ DEVICE=vendor_device-name
 - `SUBTARGET`: OpenWrt subtarget.
 - `DEVICE`: OpenWrt device profile.
 
-Source builds support packages, feeds, Git packages and optional profile files.
+The repository can be the official `openwrt/openwrt` repository or any compatible custom fork. This allows a profile to build OpenWrt trees containing device support, kernel changes, driver patches, or other source modifications that are not present upstream.
+
+Source builds use `packages`, `feeds`, `git-packages`, and optional `files/`.
 
 ### ImageBuilder build
 
-Use `METHOD=imagebuilder` to assemble firmware with an already-built OpenWrt ImageBuilder.
-
-Required keys:
+An ImageBuilder profile requires:
 
 ```text
 METHOD=imagebuilder
@@ -64,13 +77,15 @@ DEVICE=generic
 - `IMAGEBUILDER_URL`: URL of the OpenWrt ImageBuilder archive.
 - `DEVICE`: ImageBuilder profile passed to `make image PROFILE=...`.
 
-ImageBuilder uses precompiled OpenWrt packages and is usually much faster than compiling the source tree.
+ImageBuilder uses precompiled OpenWrt packages and avoids compiling the full source tree.
 
-The `feeds` and `git-packages` files are ignored completely in ImageBuilder mode. They may contain entries; the builder does not parse or validate them for an ImageBuilder profile.
+It uses `packages` and optional `files/`.
+
+`feeds` and `git-packages` are ignored completely in ImageBuilder mode. They may contain entries; the builder does not parse or validate them for an ImageBuilder profile.
 
 ## `packages`
 
-One package per line:
+Use one package per line:
 
 ```text
 luci
@@ -78,33 +93,74 @@ dnsmasq-full
 -dnsmasq
 ```
 
-A normal package name means it must be included. A leading `-` means it must be excluded.
+A normal package name means the package must be included. A leading `-` means it must be excluded.
 
-For source builds, these entries are translated to OpenWrt `.config` symbols and verified after `make defconfig`.
+Inline comments are also supported:
 
-For ImageBuilder builds, the same entries are passed to the ImageBuilder `PACKAGES` argument.
+```text
+luci                 # include LuCI
+-wpad-basic-mbedtls  # remove the default basic wpad variant
+wpad-mbedtls         # use the full variant instead
+```
 
-Do not copy every transitive dependency from a generated `.config`. List the features that are intentionally part of the firmware and let OpenWrt resolve their dependencies.
+Do not list every transitive dependency from a generated `.config` or package manifest. List the packages that are intentionally part of the firmware and let OpenWrt resolve their dependencies.
+
+### Source behavior
+
+For a source build, package entries are translated to OpenWrt `.config` symbols:
+
+```text
+package-name  -> CONFIG_PACKAGE_package-name=y
+-package-name -> CONFIG_PACKAGE_package-name=n
+```
+
+After `make defconfig`, the builder verifies that requested packages were selected and explicitly excluded packages were not enabled.
+
+### ImageBuilder behavior
+
+For an ImageBuilder build, the same include/exclude list is passed through the native ImageBuilder `PACKAGES` argument.
 
 ## `feeds`
 
-For `METHOD=source`, this file uses the same syntax as OpenWrt `feeds.conf`. Entries are appended to `feeds.conf.default` before feeds are updated and installed.
+For `METHOD=source`, `feeds` uses standard OpenWrt feed syntax. Each non-comment line is appended to `feeds.conf.default` before the builder runs:
 
 ```text
-src-git example https://github.com/example/openwrt-feed.git
+./scripts/feeds update -a
+./scripts/feeds install -a
 ```
 
-For `METHOD=imagebuilder`, the file is ignored even when it contains entries.
+Example:
+
+```text
+src-git myfeed https://github.com/example/openwrt-feed.git
+```
+
+Supported feed entry prefixes are:
+
+```text
+src-git
+src-git-full
+src-link
+src-cpy
+```
+
+For `METHOD=imagebuilder`, this file is ignored even when it contains entries.
 
 ## `git-packages`
 
-For `METHOD=source`, format:
+For `METHOD=source`, this file makes OpenWrt packages available directly from Git repositories without defining a feed.
+
+Format:
 
 ```text
 REPOSITORY [REF] [PATH]
 ```
 
-`REPOSITORY` is required. `REF` and `PATH` are optional. Use `-` as the ref when a path is required but the repository default branch should be used.
+- `REPOSITORY`: required Git repository URL;
+- `REF`: optional branch, tag, or commit;
+- `PATH`: optional package directory inside the repository.
+
+Use `-` as `REF` when a path is required but the repository default branch should be used.
 
 Examples:
 
@@ -115,15 +171,17 @@ https://github.com/example/openwrt-apps.git main luci-app-example
 https://github.com/example/openwrt-apps.git - luci-app-example
 ```
 
-The selected directory is copied into the temporary OpenWrt source tree under `package/openwrt-builder/`. It is not automatically installed; add its OpenWrt package name to `packages` when it must be part of the image.
+The selected package directory is copied into the temporary OpenWrt source tree under `package/openwrt-builder/`.
 
-For `METHOD=imagebuilder`, the file is ignored even when it contains entries.
+Adding a Git package only makes it available to OpenWrt. Add its OpenWrt package name to `packages` when it should be installed in the firmware.
 
-## `files/`
+For `METHOD=imagebuilder`, this file is ignored even when it contains entries.
 
-`files/` is an optional directory that mirrors the OpenWrt root filesystem.
+## Embedded files and configuration
 
-Example:
+A profile may contain an optional `files/` directory.
+
+The directory mirrors the root filesystem of the generated OpenWrt image. For example:
 
 ```text
 profiles/my-router/files/etc/banner
@@ -131,7 +189,7 @@ profiles/my-router/files/etc/uci-defaults/99-custom-settings
 profiles/my-router/files/usr/bin/custom-script
 ```
 
-These become:
+becomes:
 
 ```text
 /etc/banner
@@ -139,32 +197,50 @@ These become:
 /usr/bin/custom-script
 ```
 
-For a source build, the builder merges the directory into the OpenWrt source tree `files/` directory before compiling.
+### Source builds
 
-For an ImageBuilder build, the builder passes the directory using the native OpenWrt `FILES=...` argument.
+For `METHOD=source`, the profile `files/` tree is merged into the native OpenWrt source-tree `files/` directory before the build. Profile files override files at the same relative path.
 
-For UCI configuration, prefer `/etc/uci-defaults/` scripts instead of replacing complete generated configuration files. This preserves the device-specific defaults generated by OpenWrt and applies only the intended changes on first boot.
+### ImageBuilder builds
 
-If `files/` does not exist, the normal OpenWrt filesystem defaults are used.
+For `METHOD=imagebuilder`, the builder passes the profile directory through the native ImageBuilder `FILES=...` argument.
+
+### Configuration strategy
+
+Use direct files when the entire file should be part of the image exactly as stored in the profile.
+
+For configuration changes that should be applied on first boot, prefer `/etc/uci-defaults/` scripts instead of replacing complete `/etc/config/*` files. This lets OpenWrt create the normal device defaults first and then apply only the intended changes.
+
+Example:
+
+```sh
+#!/bin/sh
+
+uci set irqbalance.irqbalance.enabled='1'
+uci commit irqbalance
+
+exit 0
+```
+
+A successful `uci-defaults` script is normally removed after it runs on first boot.
+
+The builder does not automatically generate network, wireless, firewall, or topology configuration. Only files explicitly placed in the profile `files/` directory are embedded.
 
 ## `README.md`
 
-A profile may contain a `README.md` explaining its purpose, target, build method and any notable package or source choices.
+A profile may include `README.md` to explain only the purpose and profile-specific decisions for that build, such as:
 
-The builder ignores this file.
+- hardware or OpenWrt version;
+- source repository or ImageBuilder release;
+- intentional package replacements;
+- device-specific patches or constraints.
 
-## Creating profiles
+Generic builder behavior should not be duplicated in profile README files. Link to this reference instead when generic behavior needs to be mentioned.
 
-Copy the profile that is closest to the build method and OpenWrt version you want:
+## Validation
 
-```bash
-cp -r profiles/openwrt-25.12-source profiles/my-router
-```
+The builder validates all four required files for every profile.
 
-or:
+For source profiles it also validates `feeds` and `git-packages` syntax. For ImageBuilder profiles those two files are intentionally ignored.
 
-```bash
-cp -r profiles/openwrt-25.12-imagebuilder profiles/my-router
-```
-
-Edit the copied files and delete bundled profiles you do not use.
+The optional `README.md` and `files/` directory are not required for a valid profile.

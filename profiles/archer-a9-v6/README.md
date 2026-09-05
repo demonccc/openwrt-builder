@@ -8,6 +8,6 @@ Builds OpenWrt 25.12 for the TP-Link Archer A9 v6 from a custom OpenWrt fork con
 - Repository: `https://github.com/demonccc/openwrt.git`
 - Ref: `openwrt-25.12-archerA9v6`
 
-This profile demonstrates why a source build is useful when the required device support or patches are not available in the official stable OpenWrt tree.
+The custom source repository is the profile-specific requirement; the rest of the build behavior follows the normal source profile contract.
 
-Because it is a source build, it supports custom feeds, Git packages and optional embedded profile `files/`.
+See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.

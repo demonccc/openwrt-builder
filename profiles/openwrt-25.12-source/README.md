@@ -8,6 +8,6 @@ Builds the stable OpenWrt 25.12 series directly from the official `openwrt/openw
 - Ref: `openwrt-25.12`
 - Source: official OpenWrt repository
 
-Use this profile when you want a stable 25.12 base but need full source-build capabilities such as custom feeds, Git packages, source changes or embedded profile `files/`.
+This profile is the generic stable 25.12 base for source builds.
 
-This is the recommended base profile to copy for custom source builds based on the 25.12 stable series.
+See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.

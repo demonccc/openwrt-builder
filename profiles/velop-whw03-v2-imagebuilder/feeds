@@ -1,0 +1,4 @@
+# Additional OpenWrt feeds.
+#
+# This profile uses METHOD=imagebuilder, so this file is ignored completely.
+# Entries may be kept here for reference or for a future source-build variant.

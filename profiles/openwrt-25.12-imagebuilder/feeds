@@ -1,0 +1,4 @@
+# This file is ignored when METHOD=imagebuilder.
+#
+# It is kept so every profile has the same four files. Entries may be left
+# here, but ImageBuilder does not compile packages from source feeds.

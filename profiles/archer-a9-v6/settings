@@ -1,0 +1,14 @@
+# OpenWrt source and device settings.
+#
+# METHOD=source builds OpenWrt directly from a Git repository.
+# This is required when the source tree contains custom patches or device support.
+#
+# REF can be a branch, tag, or commit.
+# Blank lines and comments starting with # are ignored.
+
+METHOD=source
+REPOSITORY=https://github.com/demonccc/openwrt.git
+REF=openwrt-25.12-archerA9v6
+TARGET=ath79
+SUBTARGET=generic
+DEVICE=tplink_archer-a9-v6

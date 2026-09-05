@@ -1,0 +1,5 @@
+# Additional OpenWrt feeds for source builds.
+#
+# Uses the standard OpenWrt feeds.conf syntax.
+# Example:
+# src-git myfeed https://github.com/example/openwrt-feed.git

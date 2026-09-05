@@ -1,0 +1,4 @@
+# OpenWrt packages loaded directly from Git repositories.
+#
+# This profile uses METHOD=imagebuilder, so this file is ignored completely.
+# ImageBuilder can only use packages already published for the selected build.

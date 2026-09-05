@@ -1,0 +1,25 @@
+name: Validate profiles
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Python syntax
+        run: python3 -m py_compile scripts/build.py
+
+      - name: Validate profiles
+        run: python3 scripts/build.py validate

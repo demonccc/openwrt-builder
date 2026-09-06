@@ -401,6 +401,15 @@ def openwrt_build_state_paths(source_dir: Path) -> tuple[Path, Path, Path, Path]
     return tuple(Path(values[key]).resolve() for key in required)  # type: ignore[return-value]
 
 
+def replace_tree(source: Path, destination: Path) -> None:
+    if destination.is_symlink() or destination.is_file():
+        destination.unlink()
+    elif destination.exists():
+        shutil.rmtree(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, destination, symlinks=True)
+
+
 def install_sdk_build_state(source_dir: Path, sdk_root: Path) -> None:
     staging_host, toolchain_dir, tools_stamp, toolchain_stamp = openwrt_build_state_paths(source_dir)
     sdk_host = sdk_root / "staging_dir" / "host"
@@ -414,8 +423,8 @@ def install_sdk_build_state(source_dir: Path, sdk_root: Path) -> None:
         )
 
     print("Reusing host tools and target toolchain from the SDK.", flush=True)
-    shutil.copytree(sdk_host, staging_host, dirs_exist_ok=True, symlinks=True)
-    shutil.copytree(sdk_toolchain, toolchain_dir, dirs_exist_ok=True, symlinks=True)
+    replace_tree(sdk_host, staging_host)
+    replace_tree(sdk_toolchain, toolchain_dir)
 
     for required_tool in ("flock", "zstd"):
         if not (staging_host / "bin" / required_tool).exists():

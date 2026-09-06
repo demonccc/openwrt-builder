@@ -596,7 +596,24 @@ def build_from_source(
     if sdk_root:
         install_sdk_build_state(source_dir, sdk_root)
 
-    run(["make", "download", f"-j{jobs}"], cwd=source_dir)
+    if sdk_root:
+        print(
+            "SDK provides host tools and the target toolchain; downloading only package and target sources.",
+            flush=True,
+        )
+        run(["make", "package/download", "target/download", f"-j{jobs}"], cwd=source_dir)
+    elif external_toolchain:
+        print(
+            "External toolchain configured; skipping toolchain source downloads.",
+            flush=True,
+        )
+        run(
+            ["make", "tools/download", "package/download", "target/download", f"-j{jobs}"],
+            cwd=source_dir,
+        )
+    else:
+        run(["make", "download", f"-j{jobs}"], cwd=source_dir)
+
     run(["make", f"-j{jobs}"], cwd=source_dir)
 
     target_dir = source_dir / "bin" / "targets" / settings["TARGET"] / settings["SUBTARGET"]

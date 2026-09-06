@@ -6,7 +6,7 @@ on:
       profile:
         description: Profile directory name under profiles/
         required: true
-        default: archer-a9-v6
+        default: openwrt-25.12-source
         type: string
 
 permissions:

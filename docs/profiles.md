@@ -64,9 +64,50 @@ The repository can be the official `openwrt/openwrt` repository or any compatibl
 
 Source builds use `packages`, `feeds`, `git-packages`, and optional `files/`.
 
+### Source-build acceleration is optional
+
+A source profile may optionally define any of these acceleration settings:
+
+```text
+SDK_URL=https://downloads.openwrt.org/.../openwrt-sdk-....tar.zst
+TOOLCHAIN_URL=https://downloads.openwrt.org/.../openwrt-toolchain-....tar.zst
+FEED_NAMES=packages luci routing
+```
+
+They are never required. If none are present, the builder follows the normal OpenWrt clean source-build path: OpenWrt builds its host tools and target toolchain from source, indexes all default feeds, then builds the selected target, packages, dependencies, and firmware image.
+
+The bundled `openwrt-25.12-full-source` and `snapshot-full-source` profiles intentionally omit all three options as explicit full-source examples.
+
+A full source build does **not** compile every package available from every feed. Feed indexing makes package definitions available to OpenWrt; actual compilation is still driven by the resolved OpenWrt configuration and dependency graph.
+
+#### Optional SDK reuse
+
+A source profile may define `SDK_URL`:
+
+```text
+SDK_URL=https://downloads.openwrt.org/releases/25.12.5/targets/ath79/generic/openwrt-sdk-25.12.5-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+```
+
+The builder downloads and extracts the OpenWrt SDK and reuses:
+
+```text
+staging_dir/host
+staging_dir/toolchain-*
+```
+
+This skips rebuilding the standard OpenWrt host-tool environment and target toolchain on every clean build. It avoids rebuilding host tools such as Autoconf, Automake, CMake, Ninja, squashfs utilities, and related build helpers, as well as GCC, binutils, libc, and the rest of the target toolchain already present in the SDK.
+
+The source tree is still authoritative for the target build. The selected target, kernel, kernel modules, custom patches, selected packages, package dependencies, and final firmware image are compiled from the configured source repository.
+
+The SDK must be compatible with the selected source revision, target, subtarget, architecture, libc, and compiler ABI. The builder validates that the SDK toolchain directory matches the toolchain expected by the resolved OpenWrt configuration. Prefer an official OpenWrt SDK from the same release or compatible source baseline.
+
+`SDK_URL` and `TOOLCHAIN_URL` are mutually exclusive because an OpenWrt SDK already contains a target toolchain.
+
+If `SDK_URL` is omitted, host tools are built normally from source.
+
 #### Optional prebuilt toolchain
 
-A source profile may define `TOOLCHAIN_URL`:
+A source profile may define `TOOLCHAIN_URL` instead of `SDK_URL`:
 
 ```text
 TOOLCHAIN_URL=https://downloads.openwrt.org/releases/25.12.5/targets/ath79/generic/openwrt-toolchain-25.12.5-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
@@ -74,11 +115,11 @@ TOOLCHAIN_URL=https://downloads.openwrt.org/releases/25.12.5/targets/ath79/gener
 
 When this setting is present, the builder downloads and extracts the toolchain archive, detects the compiler prefix and GCC version, and configures OpenWrt with `CONFIG_EXTERNAL_TOOLCHAIN=y`.
 
-This skips rebuilding the target compiler toolchain on every clean source build, including GCC, binutils, libc, kernel headers, fortify headers, and GDB. The target kernel, kernel modules, selected packages, package build dependencies, and firmware image are still compiled from the configured source tree.
+This skips rebuilding the target compiler toolchain, including GCC, binutils, libc, kernel headers, fortify headers, and GDB. OpenWrt host tools are still built from source.
 
-The toolchain must be compatible with the selected OpenWrt source, target architecture, libc, and compiler ABI. Official OpenWrt toolchains matching the same release and target are the recommended choice.
+The target kernel, kernel modules, selected packages, package build dependencies, and firmware image are still compiled from the configured source tree.
 
-If `TOOLCHAIN_URL` is omitted, the normal OpenWrt internal toolchain is built from source.
+If neither `SDK_URL` nor `TOOLCHAIN_URL` is present, the normal OpenWrt internal toolchain is built from source.
 
 #### Optional feed selection
 
@@ -96,11 +137,28 @@ Feed names may be separated by spaces or commas. When set, the builder runs:
 ./scripts/feeds update packages luci routing
 ```
 
-instead of `./scripts/feeds update -a`.
+instead of:
+
+```text
+./scripts/feeds update -a
+```
 
 Use this only when all explicitly selected packages and their feed dependencies are available from the listed feeds. Packages from the OpenWrt core tree are unaffected.
 
 If `git-packages` contains entries, `FEED_NAMES` is ignored and all feeds are updated and indexed. External source packages may have feed dependencies that the builder cannot determine safely before installation.
+
+#### Acceleration combinations
+
+| Profile settings | Host tools | Target toolchain | Feed indexing |
+| --- | --- | --- | --- |
+| none | built from source | built from source | all default feeds |
+| `FEED_NAMES` | built from source | built from source | selected feeds |
+| `TOOLCHAIN_URL` | built from source | prebuilt external toolchain | all default feeds |
+| `TOOLCHAIN_URL` + `FEED_NAMES` | built from source | prebuilt external toolchain | selected feeds |
+| `SDK_URL` | reused from SDK | reused from SDK | all default feeds |
+| `SDK_URL` + `FEED_NAMES` | reused from SDK | reused from SDK | selected feeds |
+
+`SDK_URL` + `TOOLCHAIN_URL` is invalid.
 
 ### ImageBuilder build
 
@@ -304,6 +362,6 @@ Generic builder behavior should not be duplicated in profile README files. Link 
 
 The builder validates all four required files for every profile.
 
-For source profiles it also validates `FEED_NAMES`, `feeds`, and `git-packages` syntax. For ImageBuilder profiles those source-only settings and files are intentionally ignored.
+For source profiles it also validates `SDK_URL`/`TOOLCHAIN_URL` mutual exclusivity, `FEED_NAMES`, `feeds`, and `git-packages` syntax. For ImageBuilder profiles those source-only settings and files are intentionally ignored.
 
 The optional `README.md` and `files/` directory are not required for a valid profile.

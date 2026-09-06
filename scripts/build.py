@@ -21,7 +21,7 @@ WORK_DIR = ROOT / ".work"
 PROFILE_FILES = ("settings", "packages", "feeds", "git-packages")
 
 SOURCE_KEYS = ("METHOD", "REPOSITORY", "REF", "TARGET", "SUBTARGET", "DEVICE")
-SOURCE_OPTIONAL_KEYS = ("TOOLCHAIN_URL", "FEED_NAMES")
+SOURCE_OPTIONAL_KEYS = ("SDK_URL", "TOOLCHAIN_URL", "FEED_NAMES")
 IMAGEBUILDER_KEYS = ("METHOD", "IMAGEBUILDER_URL", "DEVICE")
 
 
@@ -90,6 +90,9 @@ def parse_settings(path: Path) -> dict[str, str]:
     if missing:
         raise BuilderError(f"{path}: missing required keys: {', '.join(missing)}")
 
+    if method == "source" and values.get("SDK_URL") and values.get("TOOLCHAIN_URL"):
+        raise BuilderError(f"{path}: SDK_URL and TOOLCHAIN_URL are mutually exclusive")
+
     return values
 
 
@@ -101,7 +104,6 @@ def parse_feed_names(value: str | None) -> list[str]:
     for name in names:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
             raise BuilderError(f"Invalid feed name in FEED_NAMES: '{name}'")
-
     return list(dict.fromkeys(names))
 
 
@@ -164,7 +166,6 @@ def parse_git_packages(path: Path) -> list[tuple[str, str | None, str]]:
             raise BuilderError(f"{path}:{number}: invalid Git repository '{repository}'")
         if package_path.startswith("/") or ".." in Path(package_path).parts:
             raise BuilderError(f"{path}:{number}: PATH must stay inside the repository")
-
         packages.append((repository, ref, package_path))
     return packages
 
@@ -233,7 +234,6 @@ def update_feeds(source_dir: Path, feed_names: list[str]) -> None:
         print(f"Updating only selected feeds: {' '.join(feed_names)}", flush=True)
         run(["./scripts/feeds", "update", *feed_names], cwd=source_dir)
         return
-
     run(["./scripts/feeds", "update", "-a"], cwd=source_dir)
 
 
@@ -270,7 +270,6 @@ def install_git_packages(
 
     with tempfile.TemporaryDirectory(prefix="openwrt-builder-") as temp_dir:
         temp_root = Path(temp_dir)
-
         for index, (repository, ref, package_path) in enumerate(entries):
             checkout = temp_root / f"repo-{index}"
             clone_ref(repository, ref, checkout)
@@ -286,31 +285,33 @@ def install_git_packages(
             destination = destination_root / name
             if destination.exists():
                 raise BuilderError(f"Multiple Git package entries resolve to '{name}'")
-
             shutil.copytree(source, destination, ignore=shutil.ignore_patterns(".git"))
 
 
-def download_external_toolchain(
-    url: str,
-    destination: Path,
-) -> tuple[Path, str, str]:
+def download_archive(url: str, destination: Path, filename: str, label: str) -> Path:
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True)
 
-    archive = destination / "toolchain.tar.zst"
-    print(f"Downloading external toolchain: {url}")
+    archive = destination / filename
+    print(f"Downloading {label}: {url}")
     with urllib.request.urlopen(url) as response, archive.open("wb") as handle:
         shutil.copyfileobj(response, handle)
 
     extract_dir = destination / "extract"
     extract_dir.mkdir()
     run(["tar", "--zstd", "-xf", str(archive), "-C", str(extract_dir)])
+    return extract_dir
+
+
+def download_external_toolchain(
+    url: str,
+    destination: Path,
+) -> tuple[Path, str, str]:
+    extract_dir = download_archive(url, destination, "toolchain.tar.zst", "external toolchain")
 
     compilers = sorted(
-        path
-        for path in extract_dir.rglob("*-gcc")
-        if path.is_file() and path.parent.name == "bin"
+        path for path in extract_dir.rglob("*-gcc") if path.is_file() and path.parent.name == "bin"
     )
     musl_compilers = [path for path in compilers if path.name.endswith("-musl-gcc")]
     if len(musl_compilers) == 1:
@@ -330,8 +331,7 @@ def download_external_toolchain(
         raise BuilderError(f"Could not determine toolchain prefix from {compiler.name}")
 
     gcc_version = subprocess.check_output(
-        [str(compiler), "-dumpfullversion"],
-        text=True,
+        [str(compiler), "-dumpfullversion"], text=True
     ).strip()
     if not gcc_version:
         raise BuilderError("External toolchain compiler did not report a GCC version")
@@ -342,11 +342,105 @@ def download_external_toolchain(
     return toolchain_root, prefix, gcc_version
 
 
+def download_sdk(url: str, destination: Path) -> Path:
+    extract_dir = download_archive(url, destination, "sdk.tar.zst", "OpenWrt SDK")
+    roots = [path for path in extract_dir.iterdir() if path.is_dir()]
+    if len(roots) != 1:
+        raise BuilderError("Could not determine extracted SDK directory")
+
+    sdk_root = roots[0]
+    if not (sdk_root / "staging_dir" / "host").is_dir():
+        raise BuilderError("SDK does not contain staging_dir/host")
+    toolchains = sorted((sdk_root / "staging_dir").glob("toolchain-*"))
+    if len(toolchains) != 1:
+        raise BuilderError("SDK does not contain exactly one prebuilt toolchain")
+    return sdk_root
+
+
+def openwrt_build_state_paths(source_dir: Path) -> tuple[Path, Path, Path, Path]:
+    helper = source_dir / ".openwrt-builder-vars.mk"
+    helper.write_text(
+        "openwrt-builder-vars:\n"
+        "\t@printf 'STAGING_DIR_HOST=%s\\n' '$(STAGING_DIR_HOST)'\n"
+        "\t@printf 'TOOLCHAIN_DIR=%s\\n' '$(TOOLCHAIN_DIR)'\n"
+        "\t@printf 'TOOLS_STAMP=%s\\n' '$(tools/stamp-compile)'\n"
+        "\t@printf 'TOOLCHAIN_STAMP=%s\\n' '$(toolchain/stamp-compile)'\n",
+        encoding="utf-8",
+    )
+    try:
+        output = subprocess.check_output(
+            [
+                "make",
+                "-s",
+                "OPENWRT_BUILD=1",
+                "-f",
+                "Makefile",
+                "-f",
+                helper.name,
+                "openwrt-builder-vars",
+            ],
+            cwd=source_dir,
+            text=True,
+        )
+    finally:
+        helper.unlink(missing_ok=True)
+
+    values: dict[str, str] = {}
+    for line in output.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value
+
+    required = ("STAGING_DIR_HOST", "TOOLCHAIN_DIR", "TOOLS_STAMP", "TOOLCHAIN_STAMP")
+    missing = [key for key in required if not values.get(key)]
+    if missing:
+        raise BuilderError(
+            "Could not resolve OpenWrt build-state paths: " + ", ".join(missing)
+        )
+
+    return tuple(Path(values[key]).resolve() for key in required)  # type: ignore[return-value]
+
+
+def install_sdk_build_state(source_dir: Path, sdk_root: Path) -> None:
+    staging_host, toolchain_dir, tools_stamp, toolchain_stamp = openwrt_build_state_paths(source_dir)
+    sdk_host = sdk_root / "staging_dir" / "host"
+    sdk_toolchains = sorted((sdk_root / "staging_dir").glob("toolchain-*"))
+    sdk_toolchain = sdk_toolchains[0]
+
+    if sdk_toolchain.name != toolchain_dir.name:
+        raise BuilderError(
+            "SDK toolchain does not match the resolved source build toolchain: "
+            f"SDK has '{sdk_toolchain.name}', source expects '{toolchain_dir.name}'"
+        )
+
+    print("Reusing host tools and target toolchain from the SDK.", flush=True)
+    shutil.copytree(sdk_host, staging_host, dirs_exist_ok=True, symlinks=True)
+    shutil.copytree(sdk_toolchain, toolchain_dir, dirs_exist_ok=True, symlinks=True)
+
+    for required_tool in ("flock", "zstd"):
+        if not (staging_host / "bin" / required_tool).exists():
+            raise BuilderError(f"SDK host tools are missing required binary: {required_tool}")
+
+    if not any((toolchain_dir / "bin").glob("*-gcc")):
+        raise BuilderError("SDK toolchain does not contain a target GCC compiler")
+
+    gcc_final_stamp = toolchain_dir / "stamp" / ".gcc_final_installed"
+    gcc_final_stamp.parent.mkdir(parents=True, exist_ok=True)
+    gcc_final_stamp.touch()
+
+    tools_stamp.parent.mkdir(parents=True, exist_ok=True)
+    tools_stamp.touch()
+    toolchain_stamp.parent.mkdir(parents=True, exist_ok=True)
+    toolchain_stamp.touch()
+
+    print(f"SDK host staging: {staging_host}")
+    print(f"SDK toolchain staging: {toolchain_dir}")
+
+
 def copy_profile_files(profile_dir: Path, destination: Path) -> bool:
     source = profile_dir / "files"
     if not source.is_dir():
         return False
-
     shutil.copytree(source, destination, dirs_exist_ok=True)
     return True
 
@@ -415,9 +509,8 @@ def validate_resolved_config(
         if config_value(config, symbol) != "y":
             raise BuilderError(f"OpenWrt did not select required target symbol: {symbol}")
 
-    if settings.get("TOOLCHAIN_URL"):
-        if config_value(config, "CONFIG_EXTERNAL_TOOLCHAIN") != "y":
-            raise BuilderError("OpenWrt did not enable the requested external toolchain")
+    if settings.get("TOOLCHAIN_URL") and config_value(config, "CONFIG_EXTERNAL_TOOLCHAIN") != "y":
+        raise BuilderError("OpenWrt did not enable the requested external toolchain")
 
     errors: list[str] = []
     for package in include:
@@ -473,12 +566,16 @@ def build_from_source(
     install_feed_packages(source_dir, include, git_packages)
     install_git_packages(source_dir, git_packages)
 
+    sdk_url = settings.get("SDK_URL")
+    sdk_root = None
+    if sdk_url:
+        sdk_root = download_sdk(sdk_url, WORK_DIR / profile_name / "sdk")
+
     external_toolchain = None
     toolchain_url = settings.get("TOOLCHAIN_URL")
     if toolchain_url:
         external_toolchain = download_external_toolchain(
-            toolchain_url,
-            WORK_DIR / profile_name / "toolchain",
+            toolchain_url, WORK_DIR / profile_name / "toolchain"
         )
 
     files_included = copy_profile_files(profile_dir, source_dir / "files")
@@ -486,6 +583,10 @@ def build_from_source(
 
     run(["make", "defconfig"], cwd=source_dir)
     validate_resolved_config(source_dir, settings, include, exclude)
+
+    if sdk_root:
+        install_sdk_build_state(source_dir, sdk_root)
+
     run(["make", "download", f"-j{jobs}"], cwd=source_dir)
     run(["make", f"-j{jobs}"], cwd=source_dir)
 
@@ -521,10 +622,19 @@ def build_from_source(
         f"FILES={'included' if files_included else 'none'}",
     ]
 
-    if external_toolchain:
+    if sdk_root:
+        info.extend(
+            [
+                "HOST_TOOLS=sdk",
+                "TOOLCHAIN=sdk",
+                f"SDK_URL={sdk_url}",
+            ]
+        )
+    elif external_toolchain:
         _, prefix, gcc_version = external_toolchain
         info.extend(
             [
+                "HOST_TOOLS=source",
                 "TOOLCHAIN=external",
                 f"TOOLCHAIN_URL={toolchain_url}",
                 f"TOOLCHAIN_PREFIX={prefix}",
@@ -532,25 +642,13 @@ def build_from_source(
             ]
         )
     else:
-        info.append("TOOLCHAIN=internal")
+        info.extend(["HOST_TOOLS=source", "TOOLCHAIN=internal"])
 
     (output / "BUILD_INFO").write_text("\n".join(info) + "\n", encoding="utf-8")
 
 
 def download_imagebuilder(url: str, destination: Path) -> Path:
-    if destination.exists():
-        shutil.rmtree(destination)
-    destination.mkdir(parents=True)
-
-    archive = destination / "imagebuilder.tar.zst"
-    print(f"Downloading ImageBuilder: {url}")
-    with urllib.request.urlopen(url) as response, archive.open("wb") as handle:
-        shutil.copyfileobj(response, handle)
-
-    extract_dir = destination / "extract"
-    extract_dir.mkdir()
-    run(["tar", "--zstd", "-xf", str(archive), "-C", str(extract_dir)])
-
+    extract_dir = download_archive(url, destination, "imagebuilder.tar.zst", "ImageBuilder")
     roots = [path for path in extract_dir.iterdir() if path.is_dir()]
     if len(roots) != 1:
         raise BuilderError("Could not determine extracted ImageBuilder directory")
@@ -589,7 +687,6 @@ def build_with_imagebuilder(
     ]
     if files_dir.is_dir():
         command.append(f"FILES={files_dir.resolve()}")
-
     run(command, cwd=imagebuilder_dir)
 
     info = [
@@ -660,7 +757,6 @@ def main() -> int:
     except (BuilderError, subprocess.CalledProcessError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-
     return 0
 
 

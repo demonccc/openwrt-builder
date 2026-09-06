@@ -1,9 +1,7 @@
-# OpenWrt source and device settings.
-#
-# METHOD=source builds OpenWrt directly from its Git source tree.
-# REF can be a branch, tag, or commit.
+# OpenWrt 24.10 selective source build.
 
 METHOD=source
+BUILD_MODE=selective-source
 REPOSITORY=https://github.com/openwrt/openwrt.git
 REF=openwrt-24.10
 TARGET=x86

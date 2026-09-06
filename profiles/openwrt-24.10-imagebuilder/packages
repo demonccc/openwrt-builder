@@ -1,0 +1,2 @@
+# Packages to include or exclude from the firmware image.
+# One package per line; prefix a package with '-' to exclude it.

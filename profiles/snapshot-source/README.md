@@ -1,13 +1,7 @@
-# Snapshot source build
+# OpenWrt snapshot — selective source example
 
-Builds the current OpenWrt development snapshot directly from the official `openwrt/openwrt` repository `main` branch.
+This profile demonstrates **build mode 3: `selective-source`** against current OpenWrt `main`.
 
-- Method: `source`
-- Target: `x86/64`
-- Device: `generic`
-- Ref: `main`
-- Source: official OpenWrt repository
+A snapshot or arbitrary source commit cannot safely reuse the package set from an older released firmware as if it were ABI-identical. This mode therefore builds the requested firmware from the selected source tree, but still avoids the wasteful distribution-wide build: only packages selected in `packages` and their required dependencies are compiled.
 
-This profile is a generic base for source builds that should track current OpenWrt development.
-
-See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.
+`FEED_NAMES=packages luci routing` demonstrates optional feed scoping. Those feeds are made available for resolution; their complete contents are not compiled merely because the feeds are listed.

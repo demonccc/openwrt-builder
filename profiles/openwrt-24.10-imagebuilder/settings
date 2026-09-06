@@ -1,0 +1,4 @@
+# OpenWrt 24.10.6 ImageBuilder example.
+METHOD=imagebuilder
+IMAGEBUILDER_URL=https://downloads.openwrt.org/releases/24.10.6/targets/x86/64/openwrt-imagebuilder-24.10.6-x86-64.Linux-x86_64.tar.zst
+DEVICE=generic

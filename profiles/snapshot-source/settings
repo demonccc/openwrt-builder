@@ -1,11 +1,9 @@
-# OpenWrt source and device settings.
-#
-# METHOD=source builds OpenWrt directly from its Git source tree.
-# REF can be a branch, tag, or commit.
-
+# Current OpenWrt snapshot selective source build.
 METHOD=source
+BUILD_MODE=selective-source
 REPOSITORY=https://github.com/openwrt/openwrt.git
 REF=main
 TARGET=x86
 SUBTARGET=64
 DEVICE=generic
+FEED_NAMES=packages luci routing

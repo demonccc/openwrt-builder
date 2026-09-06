@@ -1,12 +1,9 @@
-# Full OpenWrt snapshot source build.
-#
-# This profile intentionally does not define SDK_URL, TOOLCHAIN_URL, or FEED_NAMES.
-# OpenWrt therefore builds its host tools and target toolchain from source and indexes
-# every default feed before building the selected target and package dependency graph.
-
+# Current OpenWrt snapshot full distribution source build.
 METHOD=source
+BUILD_MODE=full-source
 REPOSITORY=https://github.com/openwrt/openwrt.git
 REF=main
 TARGET=x86
 SUBTARGET=64
 DEVICE=generic
+FEED_NAMES=packages luci routing

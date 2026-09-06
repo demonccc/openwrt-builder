@@ -1,21 +1,17 @@
-# TP-Link Archer A9 v6
+# TP-Link Archer A9 v6 — release-patched example
 
-Builds OpenWrt 25.12 for the TP-Link Archer A9 v6 from a custom OpenWrt fork containing the QCN5502 ath9k support required by the router's 2.4 GHz radio.
+This profile demonstrates **build mode 2: `release-patched`**.
 
-- Method: `source`
-- Target: `ath79/generic`
-- Device: `tplink_archer-a9-v6`
-- Repository: `https://github.com/demonccc/openwrt.git`
-- Ref: `openwrt-25.12-archerA9v6`
-- SDK: official OpenWrt 25.12.5 `ath79/generic` SDK
-- Indexed feeds: `packages`, `luci`, `routing`
+The Archer A9 v6 needs the custom QCN5502/ath9k work from `demonccc/openwrt@openwrt-25.12-archerA9v6` so its integrated 2.4 GHz radio is recognized. The patch changes the kernel wireless driver, but it does not justify recompiling unrelated userspace packages such as LuCI, dnsmasq, mosquitto, or openNDS.
 
-The custom source repository is the profile-specific requirement. The SDK provides the prebuilt OpenWrt host tools and target toolchain, so clean builds do not rebuild tools such as CMake, Ninja, Autoconf, squashfs utilities, GCC, binutils, musl, or the toolchain headers.
+For that reason this profile is anchored to OpenWrt **25.12.5** and declares:
 
-The patched target, kernel, wireless stack, selected packages, package dependencies, and final firmware image are still built from the configured source tree.
+```text
+PATCH_PACKAGES=kmod-ath9k
+```
 
-Only the default feeds needed by this profile are updated and indexed. The selected packages still resolve their normal transitive dependencies from those feeds and the OpenWrt core tree.
+Only the patched kernel/target path and the source package that produces `kmod-ath9k` are custom-built, together with the minimal local artifacts required to generate a patched ImageBuilder. The final package list in `packages` is then assembled using the official 25.12.5 binary repositories whenever a package is unchanged.
 
-`SDK_URL` is optional at the builder level. Removing it makes this profile fall back to a normal full source build. `FEED_NAMES` is also optional; removing it makes OpenWrt update and index all default feeds.
+The official 25.12.5 `ath79/generic` SDK is also reused so the normal host tools and target toolchain do not need to be rebuilt for every clean run.
 
-See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.
+Use this profile as a template when a custom fork is based on a specific released OpenWrt version and only a small set of packages/kernel components are affected by the patch. If the source does not correspond to a published release, use `selective-source` instead.

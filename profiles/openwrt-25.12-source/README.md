@@ -1,13 +1,9 @@
-# OpenWrt 25.12 source build
+# OpenWrt 25.12 — selective source example
 
-Builds the stable OpenWrt 25.12 series directly from the official `openwrt/openwrt` repository.
+This profile demonstrates **build mode 3: `selective-source`** against the OpenWrt 25.12 source branch.
 
-- Method: `source`
-- Target: `x86/64`
-- Device: `generic`
-- Ref: `openwrt-25.12`
-- Source: official OpenWrt repository
+Use this mode when the firmware must be built from source, but there is no reason to compile packages that are not selected for the image and are not dependencies of those packages.
 
-This profile is the generic stable 25.12 base for source builds.
+`FEED_NAMES=packages luci routing` is intentionally present to show that feed selection in this mode only limits which feeds are fetched/indexed for dependency resolution. It does **not** request a full compilation of those feeds.
 
-See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.
+The `packages` file remains the intentional firmware package list. OpenWrt resolves and builds the required dependency graph.

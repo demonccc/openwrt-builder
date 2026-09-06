@@ -1,19 +1,15 @@
-# OpenWrt snapshot full source build
+# OpenWrt snapshot — full source example
 
-Builds the current OpenWrt snapshot from the official source tree without using any prebuilt SDK or external toolchain acceleration.
+This profile demonstrates **build mode 4: `full-source`**.
 
-- Method: `source`
-- Target: `x86/64`
-- Device: `generic`
-- Ref: `main`
-- Host tools: built from source
-- Target toolchain: built from source
-- Feed indexing: all default feeds
+Use it when the goal is intentionally to build the broad OpenWrt package/distribution set from source rather than only the dependency graph required by one firmware image. This is the slowest mode and is expected to consume substantially more CPU, storage, and time than the other modes.
 
-This profile intentionally omits `SDK_URL`, `TOOLCHAIN_URL`, and `FEED_NAMES`.
+The example scopes the external feed build to:
 
-"Full source build" means OpenWrt builds its own host tools and target toolchain, then builds the selected target, firmware packages, and their dependencies. It does **not** mean compiling every package available in every feed.
+```text
+FEED_NAMES=packages luci routing
+```
 
-Use this profile when validating current OpenWrt snapshot behavior from a completely clean source build, especially on a self-hosted runner intended to build everything itself.
+In `full-source` mode that selection is significant: the listed feeds are fetched and installed for the full package build. Change the list to match the distribution you want to produce, or omit `FEED_NAMES` to use every default feed.
 
-See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.
+This profile deliberately uses current `main` so it also serves as the example for a from-zero snapshot/distribution build.

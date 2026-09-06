@@ -1,0 +1,12 @@
+# Full OpenWrt source build.
+#
+# This profile intentionally does not define SDK_URL, TOOLCHAIN_URL, or FEED_NAMES.
+# OpenWrt therefore builds its host tools and target toolchain from source and indexes
+# every default feed before building the selected target and package dependency graph.
+
+METHOD=source
+REPOSITORY=https://github.com/openwrt/openwrt.git
+REF=openwrt-25.12
+TARGET=x86
+SUBTARGET=64
+DEVICE=generic

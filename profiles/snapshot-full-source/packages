@@ -1,0 +1,8 @@
+# Packages to include or exclude from the firmware.
+#
+# One package per line.
+# package-name  -> include
+# -package-name -> exclude
+# #             -> comment
+#
+# Add only packages you intentionally want to change from the device defaults.

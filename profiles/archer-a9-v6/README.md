@@ -7,7 +7,11 @@ Builds OpenWrt 25.12 for the TP-Link Archer A9 v6 from a custom OpenWrt fork con
 - Device: `tplink_archer-a9-v6`
 - Repository: `https://github.com/demonccc/openwrt.git`
 - Ref: `openwrt-25.12-archerA9v6`
+- Toolchain: official OpenWrt 25.12.5 `ath79/generic` prebuilt toolchain
+- Indexed feeds: `packages`, `luci`, `routing`
 
-The custom source repository is the profile-specific requirement; the rest of the build behavior follows the normal source profile contract.
+The custom source repository is the profile-specific requirement. The prebuilt toolchain avoids rebuilding GCC, binutils, musl, kernel headers, fortify headers, and GDB on every clean source build while still compiling the patched kernel, wireless stack, selected packages, and firmware image from source.
+
+Only the default feeds needed by this profile are updated and indexed. The selected packages still resolve their normal transitive dependencies from those feeds and the OpenWrt core tree.
 
 See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.

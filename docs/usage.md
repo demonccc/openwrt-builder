@@ -36,30 +36,24 @@ An ImageBuilder profile points to an official or otherwise compatible OpenWrt Im
 
 Open **Actions** in your fork and run **Build OpenWrt firmware**.
 
-The workflow accepts:
+The workflow has a single input:
 
-- `profile`: directory name under `profiles/`;
-- `runner`: `github-hosted` or `self-hosted`;
-- `source_ref`: optional branch, tag, or commit override for source builds;
-- `create_release`: whether the generated firmware should also be published as a GitHub Release.
+- `profile`: directory name under `profiles/`.
 
-The source ref override is ignored for ImageBuilder profiles.
+The selected profile is the complete build recipe. Source repository, source ref, target, device, package selection, feeds, optional external toolchain, and other build behavior come from the profile itself.
 
-### GitHub-hosted runners
+The workflow runs on GitHub-hosted Ubuntu 24.04 runners.
 
-The workflow uses Ubuntu 24.04.
+Every successful workflow run:
 
-For source builds it frees additional disk space and installs the full set of OpenWrt build dependencies before compiling.
+1. uploads the generated firmware as a GitHub Actions artifact;
+2. creates a GitHub Release containing the generated firmware files.
 
-For ImageBuilder builds it skips the large disk-cleanup step and the source-build toolchain installation, because ImageBuilder only needs the tools required to download, extract, and assemble the image.
+Release creation is the default behavior for all profiles so users can find firmware from the repository Releases page without browsing individual workflow runs.
 
-### Self-hosted runners
+For source builds the workflow frees additional disk space and installs the OpenWrt source-build dependencies before compiling.
 
-A self-hosted runner can be selected when you want to use your own CPU, RAM, storage, cache, or build environment.
-
-The current workflow expects an Ubuntu/Debian-compatible runner with `sudo` available.
-
-For source builds it installs the OpenWrt source-build dependencies. For ImageBuilder builds it installs only the smaller set of tools required for ImageBuilder operation.
+For ImageBuilder builds it skips the source-build disk cleanup and toolchain dependency installation because ImageBuilder assembles firmware from already-built packages.
 
 ## Build locally
 

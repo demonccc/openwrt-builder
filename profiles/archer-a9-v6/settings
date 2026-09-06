@@ -4,8 +4,10 @@
 # This is required when the source tree contains custom patches or device support.
 #
 # REF can be a branch, tag, or commit.
-# SDK_URL is optional. When set, the builder reuses the SDK host tools and target
-# toolchain while still compiling the target, patched kernel, packages, and image.
+# TOOLS_IMAGE is optional. When set, the builder reuses OpenWrt prebuilt host tools
+# through the source tree's native scripts/ext-tools.sh mechanism.
+# TOOLCHAIN_URL is optional. When set, the builder uses an external prebuilt target
+# toolchain instead of rebuilding GCC, binutils, musl, and related components.
 # FEED_NAMES is optional. When set, only those default OpenWrt feeds are updated
 # and indexed instead of every feed from feeds.conf.default.
 # Blank lines and comments starting with # are ignored.
@@ -16,5 +18,6 @@ REF=openwrt-25.12-archerA9v6
 TARGET=ath79
 SUBTARGET=generic
 DEVICE=tplink_archer-a9-v6
-SDK_URL=https://downloads.openwrt.org/releases/25.12.5/targets/ath79/generic/openwrt-sdk-25.12.5-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+TOOLS_IMAGE=ghcr.io/openwrt/tools:openwrt-25.12
+TOOLCHAIN_URL=https://downloads.openwrt.org/releases/25.12.5/targets/ath79/generic/openwrt-toolchain-25.12.5-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
 FEED_NAMES=packages luci routing

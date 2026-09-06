@@ -26,14 +26,16 @@ With no optional acceleration settings, OpenWrt builds its host tools and target
 Optional profile settings can reduce clean-build time:
 
 ```text
-SDK_URL=...        # reuse SDK host tools + target toolchain
-TOOLCHAIN_URL=...  # reuse only a target toolchain
-FEED_NAMES=...     # update/index only selected feeds
+TOOLS_IMAGE=...     # reuse OpenWrt prebuilt host tools
+TOOLCHAIN_URL=...   # reuse a prebuilt target toolchain
+FEED_NAMES=...      # update/index only selected feeds
 ```
 
-`SDK_URL` and `TOOLCHAIN_URL` are mutually exclusive because an OpenWrt SDK already contains its target toolchain. `FEED_NAMES` is independent and may be used with either acceleration mode or by itself.
+The options are independent and may be combined. Removing `TOOLS_IMAGE`, `TOOLCHAIN_URL`, and `FEED_NAMES` always returns to the normal full source-build behavior. This is useful for self-hosted runners where the user wants OpenWrt to build the complete build environment itself.
 
-Removing `SDK_URL`, `TOOLCHAIN_URL`, and `FEED_NAMES` always returns to the normal full source-build behavior. This is useful for self-hosted runners where the user wants OpenWrt to build the complete build environment itself.
+`TOOLS_IMAGE` uses OpenWrt's native prebuilt-host-tools mechanism. The image must contain `/prebuilt_tools/staging_dir/host` and `/prebuilt_tools/build_dir/host`; the builder links those trees into the source checkout and runs `scripts/ext-tools.sh --refresh`, matching OpenWrt's own CI approach.
+
+An OpenWrt SDK is intentionally not used as a host-tools cache. Official SDK archives contain installed host binaries but exclude the host build state/stamps required for a normal source `world` build to skip `tools/compile`.
 
 "Full source build" does **not** mean compiling every package published in every OpenWrt feed. OpenWrt still compiles only the selected firmware packages plus the build/runtime dependencies required by the resolved configuration.
 
@@ -48,7 +50,7 @@ Removing `SDK_URL`, `TOOLCHAIN_URL`, and `FEED_NAMES` always returns to the norm
 | [`openwrt-25.12-source`](profiles/openwrt-25.12-source/README.md) | Source | x86/64 generic | Stable OpenWrt 25.12 source-build base |
 | [`openwrt-25.12-imagebuilder`](profiles/openwrt-25.12-imagebuilder/README.md) | ImageBuilder | x86/64 generic | Stable OpenWrt 25.12 assembled with the official ImageBuilder |
 | [`openwrt-24.10-source`](profiles/openwrt-24.10-source/README.md) | Source | x86/64 generic | OpenWrt 24.10 built from source |
-| [`archer-a9-v6`](profiles/archer-a9-v6/README.md) | Source + SDK | TP-Link Archer A9 v6 | Custom QCN5502 source build reusing official SDK host tools/toolchain and selected feeds |
+| [`archer-a9-v6`](profiles/archer-a9-v6/README.md) | Accelerated source | TP-Link Archer A9 v6 | Custom QCN5502 source build using OpenWrt prebuilt host tools, official toolchain, and selected feeds |
 | [`velop-whw03-v2-imagebuilder`](profiles/velop-whw03-v2-imagebuilder/README.md) | ImageBuilder | Linksys Velop WHW03 V2 | Device-specific package selection using the official OpenWrt ImageBuilder |
 
 The two `*-full-source` profiles are intentionally explicit reference examples showing how to opt out of all build acceleration. The bundled profiles are starting points; a fork can delete any profiles it does not use.
@@ -58,7 +60,7 @@ The two `*-full-source` profiles are intentionally explicit reference examples s
 The canonical documentation for how the builder works lives under [`docs/`](docs/):
 
 - [Using OpenWrt Builder](docs/usage.md) — forking the repository, creating builds, GitHub Actions, runners, local builds, and validation.
-- [Profile reference](docs/profiles.md) — profile structure, source and ImageBuilder methods, optional SDK/toolchain/feed acceleration, package selection, feeds, Git packages, and embedded files/configuration.
+- [Profile reference](docs/profiles.md) — profile structure, source and ImageBuilder methods, optional host-tools/toolchain/feed acceleration, package selection, feeds, Git packages, and embedded files/configuration.
 
 Keeping operational documentation under `docs/` means a fork can replace or customize this root README without losing the builder reference documentation.
 

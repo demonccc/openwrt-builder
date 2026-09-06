@@ -66,48 +66,58 @@ Source builds use `packages`, `feeds`, `git-packages`, and optional `files/`.
 
 ### Source-build acceleration is optional
 
-A source profile may optionally define any of these acceleration settings:
+A source profile may optionally define any of these settings:
 
 ```text
-SDK_URL=https://downloads.openwrt.org/.../openwrt-sdk-....tar.zst
+TOOLS_IMAGE=ghcr.io/openwrt/tools:openwrt-25.12
 TOOLCHAIN_URL=https://downloads.openwrt.org/.../openwrt-toolchain-....tar.zst
 FEED_NAMES=packages luci routing
 ```
 
-They are never required. If none are present, the builder follows the normal OpenWrt clean source-build path: OpenWrt builds its host tools and target toolchain from source, indexes all default feeds, then builds the selected target, packages, dependencies, and firmware image.
+They are independent and never required. If none are present, the builder follows the normal OpenWrt clean source-build path: OpenWrt builds its host tools and target toolchain from source, indexes all default feeds, then builds the selected target, packages, dependencies, and firmware image.
 
 The bundled `openwrt-25.12-full-source` and `snapshot-full-source` profiles intentionally omit all three options as explicit full-source examples.
 
 A full source build does **not** compile every package available from every feed. Feed indexing makes package definitions available to OpenWrt; actual compilation is still driven by the resolved OpenWrt configuration and dependency graph.
 
-#### Optional SDK reuse
+#### Optional prebuilt host tools
 
-A source profile may define `SDK_URL`:
-
-```text
-SDK_URL=https://downloads.openwrt.org/releases/25.12.5/targets/ath79/generic/openwrt-sdk-25.12.5-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
-```
-
-The builder downloads and extracts the OpenWrt SDK and reuses:
+A source profile may define `TOOLS_IMAGE`:
 
 ```text
-staging_dir/host
-staging_dir/toolchain-*
+TOOLS_IMAGE=ghcr.io/openwrt/tools:openwrt-25.12
 ```
 
-This skips rebuilding the standard OpenWrt host-tool environment and target toolchain on every clean build. It avoids rebuilding host tools such as Autoconf, Automake, CMake, Ninja, squashfs utilities, and related build helpers, as well as GCC, binutils, libc, and the rest of the target toolchain already present in the SDK.
+The container must contain the native OpenWrt prebuilt-tools layout:
 
-The source tree is still authoritative for the target build. The selected target, kernel, kernel modules, custom patches, selected packages, package dependencies, and final firmware image are compiled from the configured source repository.
+```text
+/prebuilt_tools/staging_dir/host
+/prebuilt_tools/build_dir/host
+```
 
-The SDK must be compatible with the selected source revision, target, subtarget, architecture, libc, and compiler ABI. The builder validates that the SDK toolchain directory matches the toolchain expected by the resolved OpenWrt configuration. Prefer an official OpenWrt SDK from the same release or compatible source baseline.
+The builder pulls the image with Docker, extracts `/prebuilt_tools`, links both host-tool trees into the temporary OpenWrt source checkout, and runs:
 
-`SDK_URL` and `TOOLCHAIN_URL` are mutually exclusive because an OpenWrt SDK already contains a target toolchain.
+```text
+./scripts/ext-tools.sh --refresh
+```
 
-If `SDK_URL` is omitted, host tools are built normally from source.
+This is the same mechanism used by OpenWrt's own CI. Both `staging_dir/host` and `build_dir/host` are necessary: the installed binaries alone are not sufficient for a normal source `world` build to consider `tools/compile` satisfied.
+
+When `TOOLS_IMAGE` is set, the runner must have Docker available. GitHub-hosted Linux runners provide Docker. A self-hosted runner that does not want or cannot use prebuilt host tools should simply omit `TOOLS_IMAGE`.
+
+The tools image must be compatible with the source revision and host OS/architecture. OpenWrt publishes branch-specific tools images for its CI; for the 25.12 branch, `ghcr.io/openwrt/tools:openwrt-25.12` is the matching upstream image.
+
+The builder skips `tools/download` when prebuilt host tools are configured because those tool sources are not used.
+
+#### Why the OpenWrt SDK is not used for host-tool acceleration
+
+Official OpenWrt SDK archives include `staging_dir/host` and a target toolchain, but the SDK packaging process excludes `*/stamp` and does not include `build_dir/host`. That is sufficient for compiling packages *inside the SDK*, but not for transplanting the SDK into a normal source tree and skipping `tools/compile` during `make world`.
+
+For source-build acceleration, use `TOOLS_IMAGE` for host tools and `TOOLCHAIN_URL` for the target toolchain. The builder intentionally does not expose `SDK_URL` as a source-build acceleration setting.
 
 #### Optional prebuilt toolchain
 
-A source profile may define `TOOLCHAIN_URL` instead of `SDK_URL`:
+A source profile may define `TOOLCHAIN_URL`:
 
 ```text
 TOOLCHAIN_URL=https://downloads.openwrt.org/releases/25.12.5/targets/ath79/generic/openwrt-toolchain-25.12.5-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
@@ -115,11 +125,9 @@ TOOLCHAIN_URL=https://downloads.openwrt.org/releases/25.12.5/targets/ath79/gener
 
 When this setting is present, the builder downloads and extracts the toolchain archive, detects the compiler prefix and GCC version, and configures OpenWrt with `CONFIG_EXTERNAL_TOOLCHAIN=y`.
 
-This skips rebuilding the target compiler toolchain, including GCC, binutils, libc, kernel headers, fortify headers, and GDB. OpenWrt host tools are still built from source.
+This skips rebuilding the target compiler toolchain, including GCC, binutils, libc, kernel headers, fortify headers, and GDB. The target kernel, kernel modules, selected packages, package build dependencies, and firmware image are still compiled from the configured source tree.
 
-The target kernel, kernel modules, selected packages, package build dependencies, and firmware image are still compiled from the configured source tree.
-
-If neither `SDK_URL` nor `TOOLCHAIN_URL` is present, the normal OpenWrt internal toolchain is built from source.
+If `TOOLCHAIN_URL` is omitted, the normal OpenWrt internal target toolchain is built from source.
 
 #### Optional feed selection
 
@@ -153,12 +161,21 @@ If `git-packages` contains entries, `FEED_NAMES` is ignored and all feeds are up
 | --- | --- | --- | --- |
 | none | built from source | built from source | all default feeds |
 | `FEED_NAMES` | built from source | built from source | selected feeds |
+| `TOOLS_IMAGE` | prebuilt OpenWrt tools | built from source | all default feeds |
 | `TOOLCHAIN_URL` | built from source | prebuilt external toolchain | all default feeds |
-| `TOOLCHAIN_URL` + `FEED_NAMES` | built from source | prebuilt external toolchain | selected feeds |
-| `SDK_URL` | reused from SDK | reused from SDK | all default feeds |
-| `SDK_URL` + `FEED_NAMES` | reused from SDK | reused from SDK | selected feeds |
+| `TOOLS_IMAGE` + `TOOLCHAIN_URL` | prebuilt OpenWrt tools | prebuilt external toolchain | all default feeds |
+| `TOOLS_IMAGE` + `TOOLCHAIN_URL` + `FEED_NAMES` | prebuilt OpenWrt tools | prebuilt external toolchain | selected feeds |
 
-`SDK_URL` + `TOOLCHAIN_URL` is invalid.
+The options are intentionally independent. Remove any option to restore the corresponding native OpenWrt work.
+
+The source download phase is also scoped accordingly:
+
+| Acceleration | Source download targets |
+| --- | --- |
+| none | normal `make download` |
+| `TOOLS_IMAGE` only | `toolchain/download package/download target/download` |
+| `TOOLCHAIN_URL` only | `tools/download package/download target/download` |
+| both | `package/download target/download` |
 
 ### ImageBuilder build
 
@@ -362,6 +379,8 @@ Generic builder behavior should not be duplicated in profile README files. Link 
 
 The builder validates all four required files for every profile.
 
-For source profiles it also validates `SDK_URL`/`TOOLCHAIN_URL` mutual exclusivity, `FEED_NAMES`, `feeds`, and `git-packages` syntax. For ImageBuilder profiles those source-only settings and files are intentionally ignored.
+For source profiles it also validates `TOOLS_IMAGE`, `TOOLCHAIN_URL`, `FEED_NAMES`, `feeds`, and `git-packages` syntax. `TOOLS_IMAGE` is accepted as a container image reference; its runtime layout and Docker availability are checked when a build actually uses it.
+
+For ImageBuilder profiles, source-only settings and source-only files are intentionally ignored.
 
 The optional `README.md` and `files/` directory are not required for a valid profile.

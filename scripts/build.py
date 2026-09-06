@@ -21,7 +21,7 @@ WORK_DIR = ROOT / ".work"
 PROFILE_FILES = ("settings", "packages", "feeds", "git-packages")
 
 SOURCE_KEYS = ("METHOD", "REPOSITORY", "REF", "TARGET", "SUBTARGET", "DEVICE")
-SOURCE_OPTIONAL_KEYS = ("SDK_URL", "TOOLCHAIN_URL", "FEED_NAMES")
+SOURCE_OPTIONAL_KEYS = ("TOOLS_IMAGE", "TOOLCHAIN_URL", "FEED_NAMES")
 IMAGEBUILDER_KEYS = ("METHOD", "IMAGEBUILDER_URL", "DEVICE")
 
 
@@ -89,9 +89,6 @@ def parse_settings(path: Path) -> dict[str, str]:
     missing = [key for key in required if key not in values]
     if missing:
         raise BuilderError(f"{path}: missing required keys: {', '.join(missing)}")
-
-    if method == "source" and values.get("SDK_URL") and values.get("TOOLCHAIN_URL"):
-        raise BuilderError(f"{path}: SDK_URL and TOOLCHAIN_URL are mutually exclusive")
 
     return values
 
@@ -342,108 +339,63 @@ def download_external_toolchain(
     return toolchain_root, prefix, gcc_version
 
 
-def download_sdk(url: str, destination: Path) -> Path:
-    extract_dir = download_archive(url, destination, "sdk.tar.zst", "OpenWrt SDK")
-    roots = [path for path in extract_dir.iterdir() if path.is_dir()]
-    if len(roots) != 1:
-        raise BuilderError("Could not determine extracted SDK directory")
-
-    sdk_root = roots[0]
-    if not (sdk_root / "staging_dir" / "host").is_dir():
-        raise BuilderError("SDK does not contain staging_dir/host")
-    toolchains = sorted((sdk_root / "staging_dir").glob("toolchain-*"))
-    if len(toolchains) != 1:
-        raise BuilderError("SDK does not contain exactly one prebuilt toolchain")
-    return sdk_root
+def remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
 
 
-def openwrt_build_state_paths(source_dir: Path) -> tuple[Path, Path, Path, Path]:
-    helper = source_dir / ".openwrt-builder-vars.mk"
-    helper.write_text(
-        "openwrt-builder-vars:\n"
-        "\t@printf 'STAGING_DIR_HOST=%s\\n' '$(STAGING_DIR_HOST)'\n"
-        "\t@printf 'TOOLCHAIN_DIR=%s\\n' '$(TOOLCHAIN_DIR)'\n"
-        "\t@printf 'TOOLS_STAMP=%s\\n' '$(tools/stamp-compile)'\n"
-        "\t@printf 'TOOLCHAIN_STAMP=%s\\n' '$(toolchain/stamp-compile)'\n",
-        encoding="utf-8",
-    )
+def install_prebuilt_tools_from_image(
+    source_dir: Path,
+    image: str,
+    destination: Path,
+) -> None:
+    if not shutil.which("docker"):
+        raise BuilderError("TOOLS_IMAGE requires Docker on the build runner")
+
+    remove_path(destination)
+    destination.mkdir(parents=True)
+
+    print(f"Using prebuilt OpenWrt host tools image: {image}", flush=True)
+    run(["docker", "pull", image])
+    container_id = subprocess.check_output(["docker", "create", image], text=True).strip()
+    if not container_id:
+        raise BuilderError(f"Could not create container from TOOLS_IMAGE: {image}")
+
     try:
-        output = subprocess.check_output(
-            [
-                "make",
-                "-s",
-                "OPENWRT_BUILD=1",
-                "-f",
-                "Makefile",
-                "-f",
-                helper.name,
-                "openwrt-builder-vars",
-            ],
-            cwd=source_dir,
-            text=True,
-        )
+        run(["docker", "cp", f"{container_id}:/prebuilt_tools/.", str(destination)])
     finally:
-        helper.unlink(missing_ok=True)
+        run(["docker", "rm", "-f", container_id], check=False)
 
-    values: dict[str, str] = {}
-    for line in output.splitlines():
-        if "=" in line:
-            key, value = line.split("=", 1)
-            values[key] = value
-
-    required = ("STAGING_DIR_HOST", "TOOLCHAIN_DIR", "TOOLS_STAMP", "TOOLCHAIN_STAMP")
-    missing = [key for key in required if not values.get(key)]
-    if missing:
+    prebuilt_staging_host = destination / "staging_dir" / "host"
+    prebuilt_build_host = destination / "build_dir" / "host"
+    if not prebuilt_staging_host.is_dir() or not prebuilt_build_host.is_dir():
         raise BuilderError(
-            "Could not resolve OpenWrt build-state paths: " + ", ".join(missing)
+            "TOOLS_IMAGE must contain /prebuilt_tools/staging_dir/host and "
+            "/prebuilt_tools/build_dir/host"
         )
 
-    return tuple(Path(values[key]).resolve() for key in required)  # type: ignore[return-value]
+    staging_host = source_dir / "staging_dir" / "host"
+    build_host = source_dir / "build_dir" / "host"
+    remove_path(staging_host)
+    remove_path(build_host)
+    staging_host.parent.mkdir(parents=True, exist_ok=True)
+    build_host.parent.mkdir(parents=True, exist_ok=True)
+    staging_host.symlink_to(prebuilt_staging_host.resolve(), target_is_directory=True)
+    build_host.symlink_to(prebuilt_build_host.resolve(), target_is_directory=True)
 
-
-def replace_tree(source: Path, destination: Path) -> None:
-    if destination.is_symlink() or destination.is_file():
-        destination.unlink()
-    elif destination.exists():
-        shutil.rmtree(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, destination, symlinks=True)
-
-
-def install_sdk_build_state(source_dir: Path, sdk_root: Path) -> None:
-    staging_host, toolchain_dir, tools_stamp, toolchain_stamp = openwrt_build_state_paths(source_dir)
-    sdk_host = sdk_root / "staging_dir" / "host"
-    sdk_toolchains = sorted((sdk_root / "staging_dir").glob("toolchain-*"))
-    sdk_toolchain = sdk_toolchains[0]
-
-    if sdk_toolchain.name != toolchain_dir.name:
-        raise BuilderError(
-            "SDK toolchain does not match the resolved source build toolchain: "
-            f"SDK has '{sdk_toolchain.name}', source expects '{toolchain_dir.name}'"
-        )
-
-    print("Reusing host tools and target toolchain from the SDK.", flush=True)
-    replace_tree(sdk_host, staging_host)
-    replace_tree(sdk_toolchain, toolchain_dir)
+    ext_tools = source_dir / "scripts" / "ext-tools.sh"
+    if not ext_tools.is_file():
+        raise BuilderError("OpenWrt source tree does not provide scripts/ext-tools.sh")
+    run(["./scripts/ext-tools.sh", "--refresh"], cwd=source_dir)
 
     for required_tool in ("flock", "zstd"):
         if not (staging_host / "bin" / required_tool).exists():
-            raise BuilderError(f"SDK host tools are missing required binary: {required_tool}")
+            raise BuilderError(f"Prebuilt host tools are missing required binary: {required_tool}")
 
-    if not any((toolchain_dir / "bin").glob("*-gcc")):
-        raise BuilderError("SDK toolchain does not contain a target GCC compiler")
-
-    gcc_final_stamp = toolchain_dir / "stamp" / ".gcc_final_installed"
-    gcc_final_stamp.parent.mkdir(parents=True, exist_ok=True)
-    gcc_final_stamp.touch()
-
-    tools_stamp.parent.mkdir(parents=True, exist_ok=True)
-    tools_stamp.touch()
-    toolchain_stamp.parent.mkdir(parents=True, exist_ok=True)
-    toolchain_stamp.touch()
-
-    print(f"SDK host staging: {staging_host}")
-    print(f"SDK toolchain staging: {toolchain_dir}")
+    print(f"Prebuilt host staging: {prebuilt_staging_host}")
+    print(f"Prebuilt host build state: {prebuilt_build_host}")
 
 
 def copy_profile_files(profile_dir: Path, destination: Path) -> bool:
@@ -541,6 +493,39 @@ def prepare_output(output: Path) -> Path:
     return output
 
 
+def download_source_inputs(
+    source_dir: Path,
+    *,
+    jobs: int,
+    prebuilt_tools: bool,
+    external_toolchain: bool,
+) -> None:
+    if prebuilt_tools and external_toolchain:
+        print(
+            "Prebuilt host tools and external toolchain configured; "
+            "downloading only package and target sources.",
+            flush=True,
+        )
+        targets = ["package/download", "target/download"]
+    elif prebuilt_tools:
+        print(
+            "Prebuilt host tools configured; skipping host-tool source downloads.",
+            flush=True,
+        )
+        targets = ["toolchain/download", "package/download", "target/download"]
+    elif external_toolchain:
+        print(
+            "External toolchain configured; skipping toolchain source downloads.",
+            flush=True,
+        )
+        targets = ["tools/download", "package/download", "target/download"]
+    else:
+        run(["make", "download", f"-j{jobs}"], cwd=source_dir)
+        return
+
+    run(["make", *targets, f"-j{jobs}"], cwd=source_dir)
+
+
 def build_from_source(
     profile_name: str,
     profile_dir: Path,
@@ -575,16 +560,19 @@ def build_from_source(
     install_feed_packages(source_dir, include, git_packages)
     install_git_packages(source_dir, git_packages)
 
-    sdk_url = settings.get("SDK_URL")
-    sdk_root = None
-    if sdk_url:
-        sdk_root = download_sdk(sdk_url, WORK_DIR / profile_name / "sdk")
-
     external_toolchain = None
     toolchain_url = settings.get("TOOLCHAIN_URL")
     if toolchain_url:
         external_toolchain = download_external_toolchain(
             toolchain_url, WORK_DIR / profile_name / "toolchain"
+        )
+
+    tools_image = settings.get("TOOLS_IMAGE")
+    if tools_image:
+        install_prebuilt_tools_from_image(
+            source_dir,
+            tools_image,
+            WORK_DIR / profile_name / "host-tools",
         )
 
     files_included = copy_profile_files(profile_dir, source_dir / "files")
@@ -593,27 +581,12 @@ def build_from_source(
     run(["make", "defconfig"], cwd=source_dir)
     validate_resolved_config(source_dir, settings, include, exclude)
 
-    if sdk_root:
-        install_sdk_build_state(source_dir, sdk_root)
-
-    if sdk_root:
-        print(
-            "SDK provides host tools and the target toolchain; downloading only package and target sources.",
-            flush=True,
-        )
-        run(["make", "package/download", "target/download", f"-j{jobs}"], cwd=source_dir)
-    elif external_toolchain:
-        print(
-            "External toolchain configured; skipping toolchain source downloads.",
-            flush=True,
-        )
-        run(
-            ["make", "tools/download", "package/download", "target/download", f"-j{jobs}"],
-            cwd=source_dir,
-        )
-    else:
-        run(["make", "download", f"-j{jobs}"], cwd=source_dir)
-
+    download_source_inputs(
+        source_dir,
+        jobs=jobs,
+        prebuilt_tools=bool(tools_image),
+        external_toolchain=external_toolchain is not None,
+    )
     run(["make", f"-j{jobs}"], cwd=source_dir)
 
     target_dir = source_dir / "bin" / "targets" / settings["TARGET"] / settings["SUBTARGET"]
@@ -648,19 +621,15 @@ def build_from_source(
         f"FILES={'included' if files_included else 'none'}",
     ]
 
-    if sdk_root:
-        info.extend(
-            [
-                "HOST_TOOLS=sdk",
-                "TOOLCHAIN=sdk",
-                f"SDK_URL={sdk_url}",
-            ]
-        )
-    elif external_toolchain:
+    if tools_image:
+        info.extend(["HOST_TOOLS=prebuilt", f"TOOLS_IMAGE={tools_image}"])
+    else:
+        info.append("HOST_TOOLS=source")
+
+    if external_toolchain:
         _, prefix, gcc_version = external_toolchain
         info.extend(
             [
-                "HOST_TOOLS=source",
                 "TOOLCHAIN=external",
                 f"TOOLCHAIN_URL={toolchain_url}",
                 f"TOOLCHAIN_PREFIX={prefix}",
@@ -668,7 +637,7 @@ def build_from_source(
             ]
         )
     else:
-        info.extend(["HOST_TOOLS=source", "TOOLCHAIN=internal"])
+        info.append("TOOLCHAIN=internal")
 
     (output / "BUILD_INFO").write_text("\n".join(info) + "\n", encoding="utf-8")
 

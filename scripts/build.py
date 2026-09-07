@@ -26,8 +26,19 @@ IMAGEBUILDER_KEYS = ("METHOD", "IMAGEBUILDER_URL", "DEVICE")
 BUILD_MODES = ("release-patched", "selective-source", "full-source")
 SDK_MODES = ("auto", "none")
 RELEASE_REF_RE = re.compile(r"^v?(\d+\.\d+\.\d+)$")
+STABLE_BRANCH_RE = re.compile(r"^openwrt-(\d+\.\d+)(?:$|[-.].*)")
 OPENWRT_DOWNLOADS = "https://downloads.openwrt.org/releases"
 OPENWRT_GIT = "https://github.com/openwrt/openwrt.git"
+OPENWRT_TOOLS_IMAGE = "ghcr.io/openwrt/tools"
+HOST_TOOLS_COMPAT_PATHS = (
+    "tools",
+    "toolchain",
+    "include/version.mk",
+    "include/cmake.mk",
+    "include/subdir.mk",
+    "scripts/ext-tools.sh",
+    "scripts/timestamp.pl",
+)
 
 
 class BuilderError(RuntimeError):
@@ -211,6 +222,7 @@ def validate_release_base(source_dir, base_ref):
     result = run(["git", "merge-base", "--is-ancestor", base_commit, "HEAD"], cwd=source_dir, check=False)
     if result.returncode:
         raise BuilderError(f"Custom REF is not based on official OpenWrt BASE_REF={base_ref}")
+    return base_commit
 
 
 def add_feeds(source_dir, feeds):
@@ -275,6 +287,132 @@ def download_archive(url, destination, filename, label):
 def exact_release(ref):
     match = RELEASE_REF_RE.fullmatch(ref)
     return match.group(1) if match else None
+
+
+def openwrt_tools_tag(ref):
+    release = exact_release(ref)
+    if release:
+        major_minor = ".".join(release.split(".")[:2])
+        return f"openwrt-{major_minor}"
+    match = STABLE_BRANCH_RE.fullmatch(ref)
+    if match:
+        return f"openwrt-{match.group(1)}"
+    if ref in ("main", "master", "HEAD"):
+        return "latest"
+    return None
+
+
+def is_official_openwrt_repository(repository):
+    path = urlparse(repository).path if "://" in repository else repository
+    normalized = path.rstrip("/")
+    if normalized.endswith(".git"):
+        normalized = normalized[:-4]
+    return normalized.lower().endswith("/openwrt/openwrt")
+
+
+def changed_host_tools_inputs(source_dir, base_commit):
+    output = subprocess.check_output(
+        ["git", "diff", "--name-only", f"{base_commit}..HEAD", "--", *HOST_TOOLS_COMPAT_PATHS],
+        cwd=source_dir,
+        text=True,
+    )
+    return [line for line in output.splitlines() if line]
+
+
+def resolve_prebuilt_tools(settings, source_dir, ref, base_commit):
+    if settings["BUILD_MODE"] == "release-patched":
+        tag = openwrt_tools_tag(settings["BASE_REF"])
+        if not tag:
+            return None, "base-ref-has-no-official-tools-family"
+        changed = changed_host_tools_inputs(source_dir, base_commit)
+        if changed:
+            print(
+                "OpenWrt prebuilt host tools disabled because the custom source changes "
+                + ", ".join(changed),
+                flush=True,
+            )
+            return None, "custom-source-modifies-host-tools"
+        return f"{OPENWRT_TOOLS_IMAGE}:{tag}", "compatible-with-base-ref"
+
+    if not is_official_openwrt_repository(settings["REPOSITORY"]):
+        return None, "custom-repository-without-base-ref"
+    tag = openwrt_tools_tag(ref)
+    if not tag:
+        return None, "ref-has-no-official-tools-family"
+    return f"{OPENWRT_TOOLS_IMAGE}:{tag}", "official-ref"
+
+
+def unpack_prebuilt_tools(profile_name, image):
+    destination = WORK_DIR / profile_name / "prebuilt-tools"
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True)
+    oci_dir = destination / "oci"
+    bundle_dir = destination / "bundle"
+
+    copy_result = run(
+        [
+            "skopeo",
+            "copy",
+            "--override-os",
+            "linux",
+            "--override-arch",
+            "amd64",
+            f"docker://{image}",
+            f"oci:{oci_dir}:tools",
+        ],
+        check=False,
+    )
+    if copy_result.returncode:
+        print(f"NOTE: could not pull {image}; OpenWrt will build host tools from source.", flush=True)
+        shutil.rmtree(destination, ignore_errors=True)
+        return None
+
+    unpack_result = run(
+        ["umoci", "unpack", "--rootless", "--image", f"{oci_dir}:tools", str(bundle_dir)],
+        check=False,
+    )
+    if unpack_result.returncode:
+        print(f"NOTE: could not unpack {image}; OpenWrt will build host tools from source.", flush=True)
+        shutil.rmtree(destination, ignore_errors=True)
+        return None
+
+    prebuilt = bundle_dir / "rootfs" / "prebuilt_tools"
+    if not (prebuilt / "staging_dir" / "host").is_dir() or not (prebuilt / "build_dir" / "host").is_dir():
+        print(f"NOTE: {image} does not contain the expected /prebuilt_tools tree; using source host tools.", flush=True)
+        shutil.rmtree(destination, ignore_errors=True)
+        return None
+    return prebuilt
+
+
+def install_prebuilt_tools(source_dir, prebuilt_root):
+    staging_dir = source_dir / "staging_dir"
+    build_dir = source_dir / "build_dir"
+    staging_dir.mkdir(exist_ok=True)
+    build_dir.mkdir(exist_ok=True)
+    for destination, target in (
+        (staging_dir / "host", prebuilt_root / "staging_dir" / "host"),
+        (build_dir / "host", prebuilt_root / "build_dir" / "host"),
+    ):
+        if destination.is_symlink() or destination.is_file():
+            destination.unlink()
+        elif destination.exists():
+            shutil.rmtree(destination)
+        destination.symlink_to(target, target_is_directory=True)
+    run(["./scripts/ext-tools.sh", "--refresh"], cwd=source_dir)
+
+
+def prepare_prebuilt_tools(profile_name, settings, source_dir, ref, base_commit):
+    image, reason = resolve_prebuilt_tools(settings, source_dir, ref, base_commit)
+    if not image:
+        print(f"OpenWrt prebuilt host tools: unavailable ({reason}); using source host tools.", flush=True)
+        return None, reason
+    print(f"OpenWrt prebuilt host tools: {image} ({reason})", flush=True)
+    prebuilt = unpack_prebuilt_tools(profile_name, image)
+    if not prebuilt:
+        return None, "image-unavailable"
+    install_prebuilt_tools(source_dir, prebuilt)
+    return image, reason
 
 
 def resolve_official_artifact(release, target, subtarget, artifact):
@@ -370,8 +508,9 @@ def prepare_source(profile_name, profile_dir, settings, source_ref, include, *, 
     ref = source_ref or settings["REF"]
     source_dir = WORK_DIR / profile_name / "openwrt"
     clone_ref(settings["REPOSITORY"], ref, source_dir, preserve_history=settings["BUILD_MODE"] == "release-patched")
+    base_commit = None
     if settings["BUILD_MODE"] == "release-patched":
-        validate_release_base(source_dir, settings["BASE_REF"])
+        base_commit = validate_release_base(source_dir, settings["BASE_REF"])
     add_feeds(source_dir, parse_feeds(profile_dir / "feeds"))
     feed_names = parse_feed_names(settings.get("FEED_NAMES"))
     git_packages = parse_git_packages(profile_dir / "git-packages")
@@ -381,7 +520,7 @@ def prepare_source(profile_name, profile_dir, settings, source_ref, include, *, 
     update_feeds(source_dir, feed_names)
     install_feed_packages(source_dir, include, git_packages, full=full, feed_names=feed_names)
     install_git_packages(source_dir, git_packages)
-    return source_dir, ref, feed_names
+    return source_dir, ref, feed_names, base_commit
 
 
 def prepare_sdk(profile_name, settings):
@@ -431,8 +570,11 @@ def write_info(output, lines):
 def build_source(profile_name, profile_dir, settings, source_ref, output, jobs):
     include, exclude = parse_packages(profile_dir / "packages")
     full = settings["BUILD_MODE"] == "full-source"
-    source_dir, ref, feeds = prepare_source(profile_name, profile_dir, settings, source_ref, include, full=full)
+    source_dir, ref, feeds, base_commit = prepare_source(profile_name, profile_dir, settings, source_ref, include, full=full)
     sdk, sdk_url, sdk_mode = prepare_sdk(profile_name, settings)
+    tools_image, tools_reason = (None, "sdk-provides-host-tools")
+    if not sdk:
+        tools_image, tools_reason = prepare_prebuilt_tools(profile_name, settings, source_dir, ref, base_commit)
     files = copy_files(profile_dir, source_dir / "files")
     write_config(source_dir, settings, include, exclude, full=full)
     run(["make", "defconfig"], cwd=source_dir)
@@ -441,7 +583,8 @@ def build_source(profile_name, profile_dir, settings, source_ref, output, jobs):
     download_sources(source_dir, jobs, sdk)
     run(["make", f"-j{jobs}"], cwd=source_dir)
     copy_firmware(source_dir, settings, output)
-    write_info(output, [f"PROFILE={profile_name}", "METHOD=source", f"BUILD_MODE={settings['BUILD_MODE']}", f"REF={ref}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FILES={'included' if files else 'none'}"])
+    host_tools_mode = "sdk" if sdk else ("official-prebuilt" if tools_image else "source")
+    write_info(output, [f"PROFILE={profile_name}", "METHOD=source", f"BUILD_MODE={settings['BUILD_MODE']}", f"REF={ref}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"HOST_TOOLS_MODE={host_tools_mode}", f"HOST_TOOLS_IMAGE={tools_image or 'none'}", f"HOST_TOOLS_REASON={tools_reason}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FILES={'included' if files else 'none'}"])
 
 
 def generated_imagebuilder(source_dir, settings):
@@ -498,8 +641,11 @@ def copy_local_apks(source_dir, imagebuilder_dir):
 def build_release_patched(profile_name, profile_dir, settings, source_ref, output, jobs):
     include, exclude = parse_packages(profile_dir / "packages")
     targets = parse_simple_list(profile_dir / "source-build-targets")
-    source_dir, ref, feeds = prepare_source(profile_name, profile_dir, settings, source_ref, [], full=False)
+    source_dir, ref, feeds, base_commit = prepare_source(profile_name, profile_dir, settings, source_ref, [], full=False)
     sdk, sdk_url, sdk_mode = prepare_sdk(profile_name, settings)
+    tools_image, tools_reason = (None, "sdk-provides-host-tools")
+    if not sdk:
+        tools_image, tools_reason = prepare_prebuilt_tools(profile_name, settings, source_dir, ref, base_commit)
     files = copy_files(profile_dir, source_dir / "files")
     write_config(source_dir, settings, [], [], imagebuilder=True)
     run(["make", "defconfig"], cwd=source_dir)
@@ -520,7 +666,8 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     if files:
         command.append(f"FILES={(source_dir / 'files').resolve()}")
     run(command, cwd=imagebuilder_dir)
-    write_info(output, [f"PROFILE={profile_name}", "METHOD=source", "BUILD_MODE=release-patched", f"REF={ref}", f"BASE_REF={settings['BASE_REF']}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"SOURCE_BUILD_TARGETS={' '.join(targets)}", f"LOCAL_APKS={local_apks}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", "UNCHANGED_PACKAGES=official-base-release-repositories"])
+    host_tools_mode = "sdk" if sdk else ("official-prebuilt" if tools_image else "source")
+    write_info(output, [f"PROFILE={profile_name}", "METHOD=source", "BUILD_MODE=release-patched", f"REF={ref}", f"BASE_REF={settings['BASE_REF']}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"HOST_TOOLS_MODE={host_tools_mode}", f"HOST_TOOLS_IMAGE={tools_image or 'none'}", f"HOST_TOOLS_REASON={tools_reason}", f"SOURCE_BUILD_TARGETS={' '.join(targets)}", f"LOCAL_APKS={local_apks}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", "UNCHANGED_PACKAGES=official-base-release-repositories"])
 
 
 def build_imagebuilder(profile_name, profile_dir, settings, output):

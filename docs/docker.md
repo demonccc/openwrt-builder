@@ -174,30 +174,28 @@ docker.io/<DOCKERHUB_USERNAME>/openwrt-builder:latest
 docker.io/<DOCKERHUB_USERNAME>/openwrt-builder:sha-<commit>
 ```
 
-The firmware and validation workflows resolve the same namespace when pulling `openwrt-builder:latest`, so a fork can use its own published image without editing YAML files.
+The firmware and validation workflows use the same explicit namespace when pulling `openwrt-builder:latest`, so a fork can use its own published image without editing YAML files.
 
 The workflow uses Docker Buildx and GitHub Actions layer caching for the Docker image itself.
 
 ## Docker Hub configuration
 
-Docker Hub publication has two pieces of repository configuration:
+Docker Hub integration requires explicit repository configuration:
 
 ```text
 DOCKERHUB_USERNAME  GitHub Actions variable
 DOCKERHUB_TOKEN     GitHub Actions secret
 ```
 
+There is intentionally no automatic fallback from the GitHub repository owner to a Docker Hub username. GitHub and Docker Hub are independent namespaces, and silently assuming they match can target an unrelated Docker Hub account and make failures difficult to diagnose.
+
+All workflows validate `DOCKERHUB_USERNAME` before using the builder image and fail immediately with a clear error when it is missing.
+
 ### Username variable
 
 `DOCKERHUB_USERNAME` is the Docker Hub account or organization that owns the `openwrt-builder` repository.
 
-The workflows resolve it as:
-
-```text
-vars.DOCKERHUB_USERNAME || github.repository_owner
-```
-
-This means a fork whose GitHub owner and Docker Hub username are the same works without setting the variable. If they are different, configure it under:
+Configure it under:
 
 ```text
 Settings
@@ -214,7 +212,11 @@ Name:  DOCKERHUB_USERNAME
 Value: <your Docker Hub username or organization>
 ```
 
-For this repository the effective value is `demonccc`.
+For this repository:
+
+```text
+DOCKERHUB_USERNAME=demonccc
+```
 
 ### Token secret
 
@@ -235,4 +237,4 @@ Name:  DOCKERHUB_TOKEN
 Value: <Docker Hub access token>
 ```
 
-The token is only needed for publishing. Pull-request image validation does not log in to Docker Hub.
+The token is only needed for publishing. Pull-request image validation does not log in to Docker Hub, but the username variable is still required so the target image namespace is unambiguous.

@@ -1,21 +1,15 @@
-# TP-Link Archer A9 v6
+# TP-Link Archer A9 v6 — release-patched example
 
-Builds OpenWrt 25.12 for the TP-Link Archer A9 v6 from a custom OpenWrt fork containing the QCN5502 ath9k support required by the router's 2.4 GHz radio.
+This profile demonstrates **mode 2: release-patched**.
 
-- Method: `source`
-- Target: `ath79/generic`
-- Device: `tplink_archer-a9-v6`
-- Repository: `https://github.com/demonccc/openwrt.git`
-- Ref: `openwrt-25.12-archerA9v6`
-- SDK: official OpenWrt 25.12.5 `ath79/generic` SDK
-- Indexed feeds: `packages`, `luci`, `routing`
+The router needs the QCN5502 ath9k patch series for its integrated 2.4 GHz radio, so an official 25.12 image cannot be used unchanged. At the same time, packages such as LuCI, dnsmasq, mosquitto, openNDS, and other unchanged userspace software should not be rebuilt just because ath9k is patched.
 
-The custom source repository is the profile-specific requirement. The SDK provides the prebuilt OpenWrt host tools and target toolchain, so clean builds do not rebuild tools such as CMake, Ninja, Autoconf, squashfs utilities, GCC, binutils, musl, or the toolchain headers.
+The profile therefore uses the custom `demonccc/openwrt` branch `openwrt-25.12-archerA9v6`, together with the matching official OpenWrt 25.12.5 `ath79/generic` SDK. The builder compiles the patched target/kernel and the explicit entries in `source-build-targets`, generates an ImageBuilder from that patched source state, and lets that ImageBuilder resolve unchanged packages from the official release repositories.
 
-The patched target, kernel, wireless stack, selected packages, package dependencies, and final firmware image are still built from the configured source tree.
+`source-build-targets` contains `package/kernel/mac80211/compile` because the QCN5502 changes live under `package/kernel/mac80211/patches/ath9k`. `target/linux/compile` is always handled automatically by release-patched mode.
 
-Only the default feeds needed by this profile are updated and indexed. The selected packages still resolve their normal transitive dependencies from those feeds and the OpenWrt core tree.
+`packages` is still the final firmware package selection. It is intentionally different from `source-build-targets`: being installed in the firmware does not imply that a package must be compiled locally.
 
-`SDK_URL` is optional at the builder level. Removing it makes this profile fall back to a normal full source build. `FEED_NAMES` is also optional; removing it makes OpenWrt update and index all default feeds.
+`FEED_NAMES=packages luci routing` limits feed preparation to the feeds this firmware uses. The SDK must match the release, target, subtarget, compiler, and libc used by the patched branch.
 
-See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.
+See the [profile reference](../../docs/profiles.md) for the generic release-patched algorithm.

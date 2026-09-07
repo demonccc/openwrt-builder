@@ -11,7 +11,8 @@ permissions:
   contents: read
 
 env:
-  BUILDER_IMAGE: docker.io/demonccc/openwrt-builder:latest
+  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME || github.repository_owner }}
+  BUILDER_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME || github.repository_owner }}/openwrt-builder:latest
 
 jobs:
   validate:
@@ -19,9 +20,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Validate builder Python
-        run: python3 -m py_compile scripts/build.py
 
       - name: Resolve builder image
         id: builder
@@ -34,10 +32,17 @@ jobs:
             echo "image=openwrt-builder:local" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Validate profiles
+      - name: Validate builder and profiles
         env:
           IMAGE: ${{ steps.builder.outputs.image }}
         run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            "$IMAGE" \
+            python3 -m py_compile scripts/build.py
+
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -e HOME=/tmp \

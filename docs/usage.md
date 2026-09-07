@@ -76,17 +76,27 @@ The checkout mount keeps `.work/` and `artifact/` in the local repository direct
 
 ## Build verbosity and troubleshooting
 
-OpenWrt controls build verbosity with its `V` make variable. OpenWrt only enables that behavior when `V` has command-line origin, so the portable Docker interface uses `MAKEFLAGS=V=...` rather than a plain `V` environment variable.
+The GitHub Actions build exposes human-readable verbosity levels:
 
-Supported diagnostic levels are:
+- `normal`: normal OpenWrt build output. This is the default.
+- `verbose`: detailed build output, useful when normal logs hide the failing command.
+- `debug`: maximum diagnostic output, including command tracing. Use this for difficult build failures.
 
-- `normal`: default OpenWrt output
-- `s`: verbose build output
-- `sc`: verbose output including command tracing; use this for the most detailed failure logs
+Internally, the workflow translates those values to OpenWrt's native make verbosity:
+
+```text
+normal  -> default OpenWrt behavior
+verbose -> V=s
+debug   -> V=sc
+```
+
+OpenWrt only enables that behavior when `V` has command-line origin. The Docker workflow therefore injects the translated value through `MAKEFLAGS`, which GNU make treats as a command-line make variable.
 
 The builder does not automatically retry a failed `make`. A line such as `Please re-run make with -j1 V=s or V=sc` is emitted by OpenWrt itself; it is only a troubleshooting recommendation.
 
-For a deterministic local diagnostic build, use `sc` together with one make job.
+### Local diagnostic build
+
+When running Docker directly, use the native OpenWrt equivalent of the desired level. For the `debug` level, use `MAKEFLAGS=V=sc` together with one make job so the output is complete and ordered.
 
 Linux / macOS:
 
@@ -154,7 +164,7 @@ A fork or custom environment can override it with any compatible image, for exam
 mydockeruser/openwrt-builder:latest
 ```
 
-The workflow also exposes a `verbosity` input with `normal`, `s`, and `sc`. `normal` is the default. Choosing `s` or `sc` passes the equivalent OpenWrt make verbosity into the Docker build from the first make invocation; the workflow does not wait for a failure and then re-run the build.
+The workflow also exposes the `verbosity` input with `normal`, `verbose`, and `debug`. `normal` is the default. `verbose` and `debug` are translated internally to the corresponding OpenWrt make verbosity before the first make invocation; the workflow does not wait for a failure and then re-run the build.
 
 The builder image used to run firmware is intentionally independent from `DOCKERHUB_USERNAME`. `DOCKERHUB_USERNAME` belongs only to the Docker image publication workflow and identifies where that workflow pushes images.
 
@@ -167,7 +177,7 @@ python3 scripts/build.py build \
   --jobs "$(nproc)"
 ```
 
-When verbose mode is selected, the container additionally receives `MAKEFLAGS=V=s` or `MAKEFLAGS=V=sc`, which is inherited by every OpenWrt `make` launched by `scripts/build.py`.
+For `verbose`, the workflow passes `MAKEFLAGS=V=s` into the container. For `debug`, it passes `MAKEFLAGS=V=sc`. Every OpenWrt `make` launched by `scripts/build.py` inherits that setting.
 
 There is no separate GitHub Actions implementation for source preparation, SDK selection, or OpenWrt prebuilt host tools. `scripts/build.py` performs that logic itself, including resolving and pulling compatible `ghcr.io/openwrt/tools` artifacts when appropriate. This is why local Docker execution and GitHub Actions follow the same build path.
 

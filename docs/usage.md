@@ -95,13 +95,21 @@ docker run --rm \
 
 ## GitHub Actions firmware build
 
-Run **Build OpenWrt firmware** and choose a profile directory. The canonical [firmware build workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/build.yml) resolves the builder image as:
+Run **Build OpenWrt firmware** and choose a profile directory. The canonical [firmware build workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/build.yml) resolves the builder image from the explicit `DOCKERHUB_USERNAME` repository variable:
 
 ```text
 docker.io/<DOCKERHUB_USERNAME>/openwrt-builder:latest
 ```
 
-`DOCKERHUB_USERNAME` comes from the GitHub Actions repository variable and falls back to `github.repository_owner` when the variable is not set. In the upstream repository this resolves to `demonccc/openwrt-builder:latest`. Forks can therefore publish and use their own image without editing the workflow.
+The variable is required. There is deliberately no fallback to the GitHub repository owner because GitHub and Docker Hub namespaces are independent and may belong to different people.
+
+In the upstream repository:
+
+```text
+DOCKERHUB_USERNAME=demonccc
+```
+
+Forks should set `DOCKERHUB_USERNAME` to the Docker Hub account or organization where they publish `openwrt-builder`. See [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md) for the required variable and secret setup.
 
 The workflow mounts the current checkout into `/workspace`. Inside the container it executes the same builder used locally:
 
@@ -120,7 +128,7 @@ Successful builds upload `artifact/` and create a GitHub Release containing the 
 
 ## Validation workflow
 
-The canonical [profile validation workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/validate.yml) resolves the same builder image. Both Python syntax validation and profile validation run inside Docker; no builder code is executed directly on the GitHub runner.
+The canonical [profile validation workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/validate.yml) requires the same explicit `DOCKERHUB_USERNAME` variable and resolves the same builder image. Both Python syntax validation and profile validation run inside Docker; no builder code is executed directly on the GitHub runner.
 
 Inside the container the workflow executes:
 

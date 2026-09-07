@@ -1,0 +1,10 @@
+# Mode 3: selective source on the custom OpenWrt 25.12 stable-derived branch.
+METHOD=source
+BUILD_MODE=selective-source
+REPOSITORY=https://github.com/demonccc/openwrt.git
+REF=openwrt-25.12-archerA9v6
+TARGET=ath79
+SUBTARGET=generic
+DEVICE=tplink_archer-a9-v6
+SDK=none
+FEED_NAMES=packages luci routing

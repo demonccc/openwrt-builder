@@ -1,9 +1,9 @@
-# Mode 2: release-patched.
+# Mode 2: release-patched against the exact OpenWrt v25.12.5 base.
 # SDK=auto resolves the official SDK from BASE_REF + target/subtarget.
 METHOD=source
 BUILD_MODE=release-patched
 REPOSITORY=https://github.com/demonccc/openwrt.git
-REF=openwrt-25.12-archerA9v6
+REF=openwrt-25.12.5-archerA9v6
 BASE_REF=v25.12.5
 TARGET=ath79
 SUBTARGET=generic

@@ -37,7 +37,9 @@ docker.io/demonccc/openwrt-builder:latest
 
 The image contains the host-side dependencies required by the supported OpenWrt build modes. Builder code and profiles are not baked into the image; the current repository checkout is mounted into `/workspace` at runtime. This means ordinary code/profile changes reuse the published image, while Dockerfile changes rebuild and republish the environment.
 
-See [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md) for local execution, Docker Hub publication, and GitHub Actions usage.
+For source builds without an SDK, the builder can additionally consume OpenWrt's official `ghcr.io/openwrt/tools` images to reuse `build_dir/host` and `staging_dir/host`. Those images are an acceleration layer only: they do not replace `demonccc/openwrt-builder`. Compatibility is resolved automatically from the OpenWrt release/branch, with conservative fallback to source-built host tools for incompatible custom forks.
+
+See [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md) for local execution, Docker Hub publication, OpenWrt prebuilt host tools, and GitHub Actions usage.
 
 ## Documentation
 

@@ -4,7 +4,7 @@ OpenWrt Builder always runs inside Docker. The same containerized execution mode
 
 For build-mode and profile semantics, see the canonical [Profile reference](https://github.com/demonccc/openwrt-builder/blob/main/docs/profiles.md).
 
-For the Docker image architecture, local image build, OpenWrt prebuilt host tools, Docker Hub publication, and secret configuration, see [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md).
+For the Docker image architecture, local image build, OpenWrt prebuilt host tools, Docker Hub publication, username variable, and token secret configuration, see [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md).
 
 ## Prerequisite
 
@@ -12,9 +12,9 @@ Install Docker. On Windows and macOS, Docker Desktop is the simplest supported e
 
 Clone the repository and run the commands from its root so the checkout can be mounted at `/workspace`.
 
-## Use the published builder image
+## Use the upstream published builder image
 
-Pull the canonical image:
+Pull the canonical upstream image:
 
 ```bash
 docker pull docker.io/demonccc/openwrt-builder:latest
@@ -95,9 +95,15 @@ docker run --rm \
 
 ## GitHub Actions firmware build
 
-Run **Build OpenWrt firmware** and choose a profile directory. The canonical [firmware build workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/build.yml) pulls `docker.io/demonccc/openwrt-builder:latest` and mounts the current checkout into `/workspace`.
+Run **Build OpenWrt firmware** and choose a profile directory. The canonical [firmware build workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/build.yml) resolves the builder image as:
 
-Inside the container it executes the same builder used locally:
+```text
+docker.io/<DOCKERHUB_USERNAME>/openwrt-builder:latest
+```
+
+`DOCKERHUB_USERNAME` comes from the GitHub Actions repository variable and falls back to `github.repository_owner` when the variable is not set. In the upstream repository this resolves to `demonccc/openwrt-builder:latest`. Forks can therefore publish and use their own image without editing the workflow.
+
+The workflow mounts the current checkout into `/workspace`. Inside the container it executes the same builder used locally:
 
 ```bash
 python3 scripts/build.py build \
@@ -108,19 +114,20 @@ python3 scripts/build.py build \
 
 There is no separate GitHub Actions implementation for source preparation, SDK selection, or OpenWrt prebuilt host tools. `scripts/build.py` performs that logic itself, including resolving and pulling compatible `ghcr.io/openwrt/tools` artifacts when appropriate. This is why local Docker execution and GitHub Actions follow the same build path.
 
-If the published builder image is temporarily unavailable, the workflow builds the repository Dockerfile locally and then runs the same command inside that image.
+If the configured published builder image is temporarily unavailable, the workflow builds the repository Dockerfile locally and then runs the same command inside that image.
 
 Successful builds upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
 
 ## Validation workflow
 
-The canonical [profile validation workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/validate.yml) uses the same builder image and executes:
+The canonical [profile validation workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/validate.yml) resolves the same builder image. Both Python syntax validation and profile validation run inside Docker; no builder code is executed directly on the GitHub runner.
+
+Inside the container the workflow executes:
 
 ```bash
+python3 -m py_compile scripts/build.py
 python3 scripts/build.py validate
 ```
-
-inside the container.
 
 ## Source override
 

@@ -2,9 +2,28 @@
 
 This guide covers execution. See the canonical [Profile reference](https://github.com/demonccc/openwrt-builder/blob/main/docs/profiles.md) for build-mode and profile semantics.
 
-## Recommended local execution: published Docker image
+## Docker architecture
 
-`scripts/build.py` performs the real OpenWrt build, including the final `make`; it is not only a configuration generator. The published builder image contains the OpenWrt host build dependencies so local and CI builds do not need to reinstall them for every run.
+The project uses two separate Docker/OCI layers with different responsibilities:
+
+- `docker.io/demonccc/openwrt-builder:latest` is the main build environment. It contains Ubuntu and the host-side packages required to run OpenWrt builds.
+- `ghcr.io/openwrt/tools:*` is an optional OpenWrt upstream acceleration artifact containing OpenWrt's precompiled host tools.
+
+Firmware builds always execute inside `docker.io/demonccc/openwrt-builder:latest`. The OpenWrt tools image is never used as the main build container.
+
+The builder image intentionally does not contain:
+
+- the `openwrt-builder` repository;
+- OpenWrt source;
+- a fixed OpenWrt SDK;
+- a fixed OpenWrt ImageBuilder;
+- profiles.
+
+The current repository checkout is mounted into `/workspace`, so the checked-out `scripts/`, `profiles/`, and documentation are always the source of truth.
+
+The image intentionally has no `ENTRYPOINT`. The caller explicitly runs `python3 scripts/build.py ...` from the mounted checkout.
+
+## Recommended local execution: published Docker image
 
 Pull the canonical image:
 
@@ -37,13 +56,49 @@ docker run --rm \
   --jobs "$(nproc)"
 ```
 
-The repository checkout is mounted at `/workspace`. The Docker image contains the build environment, not a baked copy of the builder code, so the current checkout always controls `scripts/build.py`, profiles, and documentation.
+The bind mount keeps `.work/` and `artifact/` in the local checkout. OpenWrt must not build as root; the image has a non-root default user and the examples map the container process to the current host UID/GID.
 
-The image intentionally has no `ENTRYPOINT`. It is a reusable build host; the caller explicitly chooses which command from the mounted checkout to execute.
-
-The bind mount keeps `.work/` and `artifact/` in the working directory. OpenWrt must not build as root; the image has a non-root default user and the examples map to the host UID/GID.
+## Building the builder image locally
 
 The canonical environment definition is the repository [Dockerfile](https://github.com/demonccc/openwrt-builder/blob/main/Dockerfile).
+
+Build it locally from the repository root:
+
+```bash
+docker build \
+  --platform linux/amd64 \
+  -t openwrt-builder:local \
+  .
+```
+
+The project currently publishes only `linux/amd64`, matching the GitHub Actions Ubuntu runner used by the build workflows.
+
+Validate the local image with the current checkout:
+
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  openwrt-builder:local \
+  python3 scripts/build.py validate
+```
+
+Build firmware with the local image:
+
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  openwrt-builder:local \
+  python3 scripts/build.py build \
+  --profile archer-a9-v6 \
+  --output artifact \
+  --jobs "$(nproc)"
+```
+
+Rebuilding the Docker image is only necessary when the build environment changes, normally when the Dockerfile changes. Changes to `scripts/`, `profiles/`, or documentation do not require rebuilding the image because those files are mounted from the current checkout.
 
 ## OpenWrt prebuilt host tools
 
@@ -73,26 +128,60 @@ The rules are deliberately conservative:
 
 `BUILD_INFO` records `HOST_TOOLS_MODE`, `HOST_TOOLS_IMAGE`, and `HOST_TOOLS_REASON` so every build shows whether its host tools came from the SDK, the official prebuilt image, or source.
 
-## Builder image publication
+## Builder image publication from GitHub Actions
 
-The [Build builder image workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/docker-image.yml) validates Dockerfile changes in pull requests and publishes the image from `main` to Docker Hub.
+The canonical [Build builder image workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/docker-image.yml) builds and publishes the Docker environment.
 
-The image is intentionally an environment image. Builder code and profiles are mounted from the checkout and are not copied into the image. Therefore changes to `scripts/`, `profiles/`, or documentation do not require rebuilding the Docker image; changes to the Dockerfile do.
+Its behavior is:
 
-Published tags:
+- On a pull request that changes `Dockerfile` or `.github/workflows/docker-image.yml`, the image is built and validated but is not pushed.
+- On a push to `main` that changes either of those files, the image is built and pushed to Docker Hub.
+- `workflow_dispatch` can also be used to run the workflow manually. Outside a pull request, the workflow publishes the resulting image and therefore requires the Docker Hub secret.
+
+Published tags are:
 
 - `docker.io/demonccc/openwrt-builder:latest`
 - `docker.io/demonccc/openwrt-builder:sha-<commit>`
 
-Publishing requires the GitHub Actions secret `DOCKERHUB_TOKEN`. The Docker Hub username and image namespace are intentionally fixed to `demonccc`, so there is no separate username setting to keep in sync.
+The Docker Hub username and namespace are intentionally fixed to `demonccc`; no username secret or repository variable is required.
 
-The token should be a scoped Docker Hub access token with permission to push `demonccc/openwrt-builder`.
+The workflow uses Docker Buildx and GitHub Actions layer caching for the Docker image itself. This cache is independent from OpenWrt firmware build caching.
 
-The workflow uses Buildx and GitHub Actions layer caching, so rebuilding the environment after a Dockerfile change can reuse unchanged layers.
+## Configuring the Docker Hub secret
+
+Docker Hub publication requires one GitHub Actions repository secret:
+
+```text
+DOCKERHUB_TOKEN
+```
+
+Create a Docker Hub access token with permission to push to `demonccc/openwrt-builder`. Use an access token rather than the Docker Hub account password.
+
+Then add it to the GitHub repository:
+
+1. Open `demonccc/openwrt-builder` on GitHub.
+2. Open **Settings**.
+3. Open **Secrets and variables** -> **Actions**.
+4. Select **New repository secret**.
+5. Set the name to `DOCKERHUB_TOKEN`.
+6. Paste the Docker Hub access token as the value and save it.
+
+No `DOCKERHUB_USERNAME` secret is required. The workflow already uses `demonccc` as the Docker Hub username.
+
+The secret is used only for Docker Hub login on publishing runs. Pull-request Docker builds do not log in and do not require the secret.
 
 ## GitHub Actions firmware builds
 
 Run **Build OpenWrt firmware** and choose a profile directory. The canonical [firmware build workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/build.yml) pulls `docker.io/demonccc/openwrt-builder:latest` and executes the current checkout inside it.
+
+The effective command inside the container is equivalent to:
+
+```bash
+python3 scripts/build.py build \
+  --profile "$PROFILE" \
+  --output artifact \
+  --jobs "$(nproc)"
+```
 
 If the published image is temporarily unavailable, the workflow falls back to building the repository Dockerfile locally instead of failing only because Docker Hub cannot be reached.
 
@@ -100,11 +189,11 @@ Successful builds upload `artifact/` and create a GitHub Release containing the 
 
 ## Validation workflow
 
-The canonical [profile validation workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/validate.yml) uses the same published builder image. It also retains the local Dockerfile fallback until the published image is available.
+The canonical [profile validation workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/validate.yml) uses the same published builder image. It validates the Python builder and the profiles, and retains the local Dockerfile fallback until the published image is available.
 
 ## Direct Python execution
 
-Still supported when the host already has the dependencies. To get the same automatic prebuilt-host-tools optimization outside Docker, the host also needs `skopeo` and `umoci`.
+Direct Python execution remains supported when the host already has all required build dependencies. To get the same automatic prebuilt-host-tools optimization outside Docker, the host also needs `skopeo` and `umoci`.
 
 ```bash
 python3 scripts/build.py validate

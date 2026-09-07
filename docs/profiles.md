@@ -42,7 +42,7 @@ DEVICE=vendor_device
 
 `REF` is the custom source ref. `BASE_REF` is the exact official release compatibility contract and must be a tag such as `v25.12.5`. The builder checks that the official base release commit is an ancestor of the custom source.
 
-See the real `REF`, `BASE_REF`, target and device settings in the [Archer A9 v6 settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/settings).
+See the exact `v25.12.5 + QCN5502` example in the [Archer A9 v6 settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/settings).
 
 The profile declares affected OpenWrt make targets in `source-build-targets`, for example:
 
@@ -69,11 +69,13 @@ DEVICE=generic
 FEED_NAMES=packages luci routing
 ```
 
-`REF` may be any branch, tag, or commit. Packages selected for the firmware plus their dependencies compile from that same source tree.
+`REF` may be any branch, tag, or commit. Packages selected for the firmware plus their dependencies compile from that same source tree. Unlike `full-source`, this mode does not enable `CONFIG_ALL`, `CONFIG_ALL_KMODS`, or `CONFIG_ALL_NONSHARED`.
 
 `FEED_NAMES` limits which feeds are available for package resolution; it does not compile every package in those feeds.
 
-See a release-based selective build in [openwrt-25.12-source settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/settings).
+Examples:
+- [Archer A9 v6 on the custom OpenWrt 25.12 stable-derived branch](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6-selective-source/settings)
+- [OpenWrt 25.12.5 selective source](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/settings)
 
 ## 4. `full-source`
 
@@ -109,15 +111,15 @@ For `release-patched`, the release is derived from `BASE_REF`. For `selective-so
 
 The builder reads the official target directory under `downloads.openwrt.org` and finds the matching SDK automatically, including its GCC/libc suffix.
 
-For arbitrary refs such as `main`, `openwrt-25.12`, or a custom branch, `SDK=auto` safely falls back to building host tools and the target toolchain from source.
+For arbitrary refs such as `main`, `openwrt-25.12`, or a custom branch, `SDK=auto` safely falls back to building the target toolchain from source. A profile may use `SDK=none` to state that choice explicitly.
 
-See `SDK=auto` together with `BASE_REF` in the [Archer A9 v6 settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/settings).
+See `SDK=auto` together with `BASE_REF` in the [Archer A9 v6 release-patched settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/settings).
 
 ### `SDK=none`
 
-Disables SDK reuse. OpenWrt builds host tools and target toolchain from source. It does not change package scope. `release-patched + SDK=none` would still reuse unchanged packages from `BASE_REF`.
+Disables SDK reuse. OpenWrt builds the target toolchain from source. Host tools may still come from an applicable official OpenWrt prebuilt-tools image when the builder can prove compatibility. It does not change package scope.
 
-See `SDK=none` in the [snapshot-full-source settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/snapshot-full-source/settings).
+See explicit `SDK=none` in the [Archer A9 v6 selective-source settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6-selective-source/settings) and [snapshot-full-source settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/snapshot-full-source/settings).
 
 ### `SDK_URL`
 
@@ -136,7 +138,8 @@ See an explicit SDK pin in the [openwrt-25.12-source settings](https://github.co
 `selective-source` and `full-source` accept any branch, tag, or commit in `REF`. `release-patched` additionally requires exact `BASE_REF=vX.Y.Z` because it reuses release binaries.
 
 Examples:
-- custom patched `REF` + exact `BASE_REF`: [Archer A9 v6 settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/settings)
+- exact-release custom patch: [Archer A9 v6 release-patched settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/settings)
+- stable-derived custom branch: [Archer A9 v6 selective-source settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6-selective-source/settings)
 - exact release `REF`: [OpenWrt 25.12 selective-source settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/settings)
 - moving branch `REF=main`: [snapshot full-source settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/snapshot-full-source/settings)
 
@@ -150,6 +153,7 @@ If `git-packages` is used in a non-full build, all feeds are indexed because dep
 
 Examples of `FEED_NAMES`:
 - [release-patched Archer A9 v6](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/settings)
+- [selective-source Archer A9 v6](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6-selective-source/settings)
 - [selective OpenWrt 25.12](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/settings)
 - [full snapshot](https://github.com/demonccc/openwrt-builder/blob/main/profiles/snapshot-full-source/settings)
 
@@ -190,4 +194,4 @@ See the [Velop WHW03 v2 profile](https://github.com/demonccc/openwrt-builder/tre
 
 ## Validation
 
-Run `python3 scripts/build.py validate`, or use Docker as documented in [Using OpenWrt Builder](usage.md). Validation checks mode requirements, SDK combinations, package/feed syntax, and release-patched target declarations.
+Use Docker as documented in [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md). Running `scripts/build.py` directly on the host is not a supported execution path.

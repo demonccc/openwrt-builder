@@ -17,13 +17,12 @@ This root README is intentionally an index. The canonical explanation of how bui
 
 ## Reference profiles
 
-Only these profiles are kept intentionally:
-
 | Profile | Mode | Purpose |
 | --- | --- | --- |
 | [`velop-whw03-v2-imagebuilder`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/velop-whw03-v2-imagebuilder/README.md) | ImageBuilder | Real device profile using OpenWrt 25.12 ImageBuilder |
 | [`openwrt-24.10-imagebuilder`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-24.10-imagebuilder/README.md) | ImageBuilder | Generic x86/64 ImageBuilder profile for OpenWrt 24.10 |
-| [`archer-a9-v6`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/README.md) | `release-patched` | QCN5502/ath9k patch with unchanged 25.12.5 release packages |
+| [`archer-a9-v6`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/README.md) | `release-patched` | Archer A9 v6 on exact `v25.12.5 + QCN5502`, reusing unchanged 25.12.5 packages |
+| [`archer-a9-v6-selective-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6-selective-source/README.md) | `selective-source` | Archer A9 v6 following the custom OpenWrt 25.12 stable-derived branch |
 | [`openwrt-25.12-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/README.md) | `selective-source` | Selective source build on OpenWrt 25.12.5 |
 | [`snapshot-full-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/snapshot-full-source/README.md) | `full-source` | Full source build from current OpenWrt main |
 

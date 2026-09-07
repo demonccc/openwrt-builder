@@ -52,12 +52,9 @@ Published tags:
 - `docker.io/demonccc/openwrt-builder:latest`
 - `docker.io/demonccc/openwrt-builder:sha-<commit>`
 
-Publishing requires these GitHub Actions secrets:
+Publishing requires the GitHub Actions secret `DOCKERHUB_TOKEN`. The Docker Hub username and image namespace are intentionally fixed to `demonccc`, so there is no separate username setting to keep in sync.
 
-- `DOCKERHUB_USERNAME`
-- `DOCKERHUB_TOKEN`
-
-The Docker Hub token should be a scoped access token with permission to push `demonccc/openwrt-builder`.
+The token should be a scoped Docker Hub access token with permission to push `demonccc/openwrt-builder`.
 
 The workflow uses Buildx and GitHub Actions layer caching, so rebuilding the environment after a Dockerfile change can reuse unchanged layers.
 

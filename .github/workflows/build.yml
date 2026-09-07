@@ -22,6 +22,11 @@ on:
           - normal
           - verbose
           - debug
+      log_file:
+        description: Build log path inside the repository checkout
+        required: true
+        default: logs/build.log
+        type: string
 
 permissions:
   contents: write
@@ -69,35 +74,28 @@ jobs:
           PROFILE: ${{ inputs.profile }}
           IMAGE: ${{ steps.builder.outputs.image }}
           VERBOSITY: ${{ inputs.verbosity }}
+          LOG_FILE: ${{ inputs.log_file }}
         run: |
-          docker_args=(
-            --rm
-            --user "$(id -u):$(id -g)"
-            -e HOME=/tmp
-            -v "$GITHUB_WORKSPACE:/workspace"
-          )
-
-          case "$VERBOSITY" in
-            normal)
-              ;;
-            verbose)
-              docker_args+=(-e "MAKEFLAGS=V=s")
-              ;;
-            debug)
-              docker_args+=(-e "MAKEFLAGS=V=sc")
-              ;;
-            *)
-              echo "Unsupported verbosity level: $VERBOSITY" >&2
-              exit 1
-              ;;
-          esac
-
-          docker run "${docker_args[@]}" \
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$GITHUB_WORKSPACE:/workspace" \
             "$IMAGE" \
             python3 scripts/build.py build \
             --profile "$PROFILE" \
             --output artifact \
-            --jobs "$(nproc)"
+            --jobs "$(nproc)" \
+            --verbosity "$VERBOSITY" \
+            --log-file "$LOG_FILE"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-${{ inputs.profile }}-${{ github.run_number }}-log
+          path: ${{ inputs.log_file }}
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4

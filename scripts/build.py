@@ -25,6 +25,8 @@ SOURCE_OPTIONAL_KEYS = ("BASE_REF", "SDK", "SDK_URL", "FEED_NAMES")
 IMAGEBUILDER_KEYS = ("METHOD", "IMAGEBUILDER_URL", "DEVICE")
 BUILD_MODES = ("release-patched", "selective-source", "full-source")
 SDK_MODES = ("auto", "none")
+VERBOSITY_MAP = {"normal": None, "verbose": "s", "debug": "sc"}
+LOG_CHILD_ENV = "OPENWRT_BUILDER_LOG_CHILD"
 RELEASE_REF_RE = re.compile(r"^v?(\d+\.\d+\.\d+)$")
 STABLE_BRANCH_RE = re.compile(r"^openwrt-(\d+\.\d+)(?:$|[-.].*)")
 OPENWRT_DOWNLOADS = "https://downloads.openwrt.org/releases"
@@ -39,6 +41,7 @@ HOST_TOOLS_COMPAT_PATHS = (
     "scripts/ext-tools.sh",
     "scripts/timestamp.pl",
 )
+MAKE_VERBOSITY = None
 
 
 class BuilderError(RuntimeError):
@@ -46,8 +49,49 @@ class BuilderError(RuntimeError):
 
 
 def run(command, *, cwd=None, check=True):
+    command = list(command)
+    if command and Path(command[0]).name == "make" and MAKE_VERBOSITY:
+        command.append(f"V={MAKE_VERBOSITY}")
     print("+", shlex.join(command), flush=True)
     return subprocess.run(command, cwd=cwd, check=check)
+
+
+def workspace_path(value):
+    path = Path(value)
+    return path if path.is_absolute() else ROOT / path
+
+
+def run_with_log(log_file):
+    log_path = workspace_path(log_file).resolve()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env[LOG_CHILD_ENV] = "1"
+    command = [sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]]
+    header = f"Logging build output to: {log_path}\n"
+    sys.stdout.write(header)
+    sys.stdout.flush()
+    with log_path.open("w", encoding="utf-8", buffering=1) as handle:
+        handle.write(header)
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            errors="replace",
+            env=env,
+        )
+        try:
+            assert process.stdout is not None
+            for line in process.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                handle.write(line)
+        except KeyboardInterrupt:
+            process.terminate()
+            process.wait()
+            return 130
+        return process.wait()
 
 
 def strip_comment(line):
@@ -695,6 +739,8 @@ def build(profile_name, source_ref, output, jobs):
 
 
 def main():
+    global MAKE_VERBOSITY
+
     parser = argparse.ArgumentParser(description="Build OpenWrt firmware from reusable profiles.")
     commands = parser.add_subparsers(dest="command", required=True)
     validate = commands.add_parser("validate")
@@ -704,7 +750,10 @@ def main():
     build_cmd.add_argument("--source-ref")
     build_cmd.add_argument("--output", default="artifact")
     build_cmd.add_argument("--jobs", type=int, default=max(os.cpu_count() or 1, 1))
+    build_cmd.add_argument("--verbosity", choices=VERBOSITY_MAP, default="normal")
+    build_cmd.add_argument("--log-file")
     args = parser.parse_args()
+
     try:
         if args.command == "validate":
             if args.profile:
@@ -715,6 +764,14 @@ def main():
         else:
             if args.jobs < 1:
                 raise BuilderError("--jobs must be at least 1")
+            if args.log_file:
+                log_path = workspace_path(args.log_file).resolve()
+                output_path = workspace_path(args.output).resolve()
+                if log_path == output_path or output_path in log_path.parents:
+                    raise BuilderError("--log-file must be outside --output because the output directory is recreated")
+                if os.environ.get(LOG_CHILD_ENV) != "1":
+                    return run_with_log(args.log_file)
+            MAKE_VERBOSITY = VERBOSITY_MAP[args.verbosity]
             build(args.profile, args.source_ref, Path(args.output), args.jobs)
     except (BuilderError, subprocess.CalledProcessError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

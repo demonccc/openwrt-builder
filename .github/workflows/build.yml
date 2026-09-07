@@ -13,6 +13,15 @@ on:
         required: true
         default: demonccc/openwrt-builder:latest
         type: string
+      verbosity:
+        description: Build log detail level
+        required: true
+        default: normal
+        type: choice
+        options:
+          - normal
+          - verbose
+          - debug
 
 permissions:
   contents: write
@@ -59,6 +68,7 @@ jobs:
         env:
           PROFILE: ${{ inputs.profile }}
           IMAGE: ${{ steps.builder.outputs.image }}
+          VERBOSITY: ${{ inputs.verbosity }}
         run: |
           docker run --rm \
             --user "$(id -u):$(id -g)" \
@@ -68,9 +78,11 @@ jobs:
             python3 scripts/build.py build \
             --profile "$PROFILE" \
             --output artifact \
-            --jobs "$(nproc)"
+            --jobs "$(nproc)" \
+            --verbosity "$VERBOSITY"
 
       - name: Upload firmware artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-${{ inputs.profile }}-${{ github.run_number }}
@@ -79,6 +91,7 @@ jobs:
           retention-days: 14
 
       - name: Create GitHub Release
+        if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           PROFILE: ${{ inputs.profile }}

@@ -754,9 +754,6 @@ def main():
     build_cmd.add_argument("--log-file")
     args = parser.parse_args()
 
-    if args.command == "build" and args.log_file and os.environ.get(LOG_CHILD_ENV) != "1":
-        return run_with_log(args.log_file)
-
     try:
         if args.command == "validate":
             if args.profile:
@@ -767,6 +764,13 @@ def main():
         else:
             if args.jobs < 1:
                 raise BuilderError("--jobs must be at least 1")
+            if args.log_file:
+                log_path = workspace_path(args.log_file).resolve()
+                output_path = workspace_path(args.output).resolve()
+                if log_path == output_path or output_path in log_path.parents:
+                    raise BuilderError("--log-file must be outside --output because the output directory is recreated")
+                if os.environ.get(LOG_CHILD_ENV) != "1":
+                    return run_with_log(args.log_file)
             MAKE_VERBOSITY = VERBOSITY_MAP[args.verbosity]
             build(args.profile, args.source_ref, Path(args.output), args.jobs)
     except (BuilderError, subprocess.CalledProcessError, OSError) as exc:

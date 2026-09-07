@@ -20,6 +20,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate builder Python
+        run: python3 -m py_compile scripts/build.py
+
       - name: Resolve builder image
         id: builder
         run: |

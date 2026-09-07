@@ -576,6 +576,55 @@ def write_config(source_dir, settings, include, exclude, *, full=False, imagebui
     (source_dir / ".config").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def selected_kernel_packages(source_dir):
+    config = source_dir / ".config"
+    packages = []
+    for raw in config.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"CONFIG_PACKAGE_(kmod-[^=]+)=y", raw.strip())
+        if match:
+            packages.append(match.group(1))
+    return list(dict.fromkeys(packages))
+
+
+def resolve_kernel_build_targets(source_dir):
+    packages = selected_kernel_packages(source_dir)
+    metadata = source_dir / "tmp" / ".packageinfo"
+    if not metadata.is_file():
+        run(["make", "prepare-tmpinfo"], cwd=source_dir)
+    if not metadata.is_file():
+        raise BuilderError("OpenWrt package metadata is missing after defconfig")
+
+    wanted = set(packages)
+    package_targets = {}
+    current_target = None
+    for raw in metadata.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("Source-Makefile:"):
+            makefile = line.split(":", 1)[1].strip()
+            current_target = f"{makefile[:-len('/Makefile')]}/compile" if makefile.endswith("/Makefile") else None
+        elif line.startswith("Package:") and current_target:
+            package = line.split(":", 1)[1].strip()
+            if package in wanted:
+                package_targets.setdefault(package, set()).add(current_target)
+
+    missing = [package for package in packages if package not in package_targets]
+    if missing:
+        raise BuilderError(
+            "Could not resolve source build target for selected kernel packages: " + ", ".join(missing)
+        )
+    ambiguous = {package: values for package, values in package_targets.items() if len(values) != 1}
+    if ambiguous:
+        details = "; ".join(f"{package} -> {', '.join(sorted(values))}" for package, values in ambiguous.items())
+        raise BuilderError(f"Kernel package source mapping is ambiguous: {details}")
+
+    targets = []
+    for package in packages:
+        target = next(iter(package_targets[package]))
+        if target not in targets:
+            targets.append(target)
+    return packages, targets
+
+
 def configure_download_cache(source_dir):
     if not CACHE_DIR:
         return
@@ -736,19 +785,26 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     include, exclude = parse_packages(profile_dir / "packages")
     targets = parse_simple_list(profile_dir / "source-build-targets")
     source_dir, ref, feeds, base_commit = prepare_source(profile_name, profile_dir, settings, source_ref, [], full=False)
+    # release-patched reuses official userspace packages, but a patched kernel gets
+    # a different kernel ABI/version hash. Install the configured feed package
+    # definitions so defconfig can resolve the complete firmware dependency graph,
+    # then rebuild every selected kmod against the custom kernel.
+    install_feed_packages(source_dir, [], [], full=True, feed_names=feeds)
     sdk, sdk_url, sdk_mode = prepare_sdk(profile_name, settings)
     tools_image, tools_reason = (None, "sdk-provides-host-tools")
     if not sdk:
         tools_image, tools_reason = prepare_prebuilt_tools(profile_name, settings, source_dir, ref, base_commit)
     files = copy_files(profile_dir, source_dir / "files")
-    write_config(source_dir, settings, [], [], imagebuilder=True)
+    write_config(source_dir, settings, include, exclude, imagebuilder=True)
     run(["make", "defconfig"], cwd=source_dir)
+    kernel_packages, kernel_targets = resolve_kernel_build_targets(source_dir)
+    build_targets = list(dict.fromkeys([*targets, *kernel_targets]))
     if sdk:
         install_sdk_state(source_dir, sdk)
     download_sources(source_dir, jobs, sdk)
     run(["make", "target/linux/compile", f"-j{jobs}"], cwd=source_dir)
-    for target in targets:
-        run(["make", target, f"-j{jobs}"], cwd=source_dir)
+    if build_targets:
+        run(["make", *build_targets, f"-j{jobs}"], cwd=source_dir)
     run(["make", "package/base-files/compile", f"-j{jobs}"], cwd=source_dir)
     run(["make", "target/imagebuilder/compile", f"-j{jobs}"], cwd=source_dir)
     imagebuilder_dir = generated_imagebuilder(source_dir, settings)
@@ -761,7 +817,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         command.append(f"FILES={(source_dir / 'files').resolve()}")
     run(command, cwd=imagebuilder_dir)
     host_tools_mode = "sdk" if sdk else ("official-prebuilt" if tools_image else "source")
-    write_info(output, [f"PROFILE={profile_name}", "METHOD=source", "BUILD_MODE=release-patched", f"REF={ref}", f"BASE_REF={settings['BASE_REF']}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"HOST_TOOLS_MODE={host_tools_mode}", f"HOST_TOOLS_IMAGE={tools_image or 'none'}", f"HOST_TOOLS_REASON={tools_reason}", f"SOURCE_BUILD_TARGETS={' '.join(targets)}", f"LOCAL_APKS={local_apks}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", "UNCHANGED_PACKAGES=official-base-release-repositories"])
+    write_info(output, [f"PROFILE={profile_name}", "METHOD=source", "BUILD_MODE=release-patched", f"REF={ref}", f"BASE_REF={settings['BASE_REF']}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"HOST_TOOLS_MODE={host_tools_mode}", f"HOST_TOOLS_IMAGE={tools_image or 'none'}", f"HOST_TOOLS_REASON={tools_reason}", f"SOURCE_BUILD_TARGETS={' '.join(targets)}", f"LOCAL_KMOD_PACKAGES={' '.join(kernel_packages)}", f"LOCAL_KMOD_BUILD_TARGETS={' '.join(kernel_targets)}", f"LOCAL_APKS={local_apks}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", "UNCHANGED_PACKAGES=official-base-release-userspace"])
 
 
 def build_imagebuilder(profile_name, profile_dir, settings, output):

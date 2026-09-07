@@ -52,9 +52,11 @@ package/kernel/mac80211/compile
 
 See the [Archer A9 v6 source-build-targets](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/source-build-targets).
 
-The builder compiles the target/kernel and those targets, creates a custom ImageBuilder, injects the locally built APKs, and replaces its repository configuration with the repository configuration from the official ImageBuilder matching `BASE_REF`. Unchanged packages therefore resolve from the exact base release rather than a snapshot.
+The builder resolves the complete firmware package selection with OpenWrt `defconfig`, compiles the target/kernel and the explicit `source-build-targets`, and also rebuilds every selected `kmod-*` source package against that custom kernel. This includes kernel modules selected indirectly through dependencies of userspace packages. A patched kernel normally has a different kernel version/ABI hash, so official release kmods cannot safely be mixed with the locally generated kernel even when both come from the same `BASE_REF` release.
 
-`BASE_REF` cannot prove arbitrary ABI compatibility. The profile author must ensure that differences from the base release are limited to changes whose affected targets are rebuilt.
+After the required source units and kernel modules are built, the builder creates a custom ImageBuilder, injects the locally built APKs, and replaces its repository configuration with the repository configuration from the official ImageBuilder matching `BASE_REF`. Userspace packages that are not rebuilt therefore resolve from the exact base release, while selected kernel modules resolve from the local package set built against the custom kernel.
+
+`BASE_REF` cannot prove arbitrary ABI compatibility. The builder treats kernel modules as kernel-ABI-coupled and rebuilds all selected kmods automatically; the profile author remains responsible for declaring any additional non-kernel source units affected by the patch set in `source-build-targets`.
 
 ## 3. `selective-source`
 
@@ -147,7 +149,7 @@ Examples:
 
 `FEED_NAMES=packages luci routing` accepts space- or comma-separated names.
 
-In `selective-source` and `release-patched`, feeds are package sources; compilation remains driven by firmware selection, dependencies, and explicit patched targets. In `full-source`, selected feeds expose their complete package universe to the `CONFIG_ALL*` build.
+In `selective-source`, feeds are package sources and compilation remains driven by firmware selection and dependencies. In `release-patched`, the configured feeds are installed as package definitions so OpenWrt can resolve the complete firmware dependency graph; compilation remains limited to explicit patched targets plus the source packages that produce selected kernel modules. In `full-source`, selected feeds expose their complete package universe to the `CONFIG_ALL*` build.
 
 If `git-packages` is used in a non-full build, all feeds are indexed because dependencies of external packages cannot be known in advance.
 

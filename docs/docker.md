@@ -4,11 +4,13 @@ OpenWrt Builder always runs inside Docker, both locally and in GitHub Actions.
 
 This is intentional: Docker is the portable execution boundary of the project. Windows, macOS, Linux, and GitHub Actions all run the same Linux build environment, with the same dependencies and the same builder behavior.
 
-The canonical build environment is:
+The upstream project publishes its canonical build environment as:
 
 ```text
 docker.io/demonccc/openwrt-builder:latest
 ```
+
+Forks can publish and consume the same image under their own Docker Hub namespace without modifying the workflows. See [Docker Hub configuration](#docker-hub-configuration).
 
 For day-to-day commands, see [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md).
 
@@ -44,7 +46,7 @@ Using Docker makes the execution model consistent:
 Windows / macOS / Linux / GitHub Actions
                   |
                   v
-      demonccc/openwrt-builder
+       <namespace>/openwrt-builder
                   |
                   v
         scripts/build.py
@@ -113,7 +115,7 @@ For source builds that are not already using an SDK, `scripts/build.py` automati
 ghcr.io/openwrt/tools:<family>
 ```
 
-This resolution and pull are performed by `scripts/build.py` itself, inside `demonccc/openwrt-builder`. GitHub Actions does not implement a separate OpenWrt-tools code path. Therefore a local Docker run and a GitHub Actions firmware build execute the same builder logic.
+This resolution and pull are performed by `scripts/build.py` itself, inside the builder container. GitHub Actions does not implement a separate OpenWrt-tools code path. Therefore a local Docker run and a GitHub Actions firmware build execute the same builder logic.
 
 Typical family mapping is:
 
@@ -124,7 +126,7 @@ openwrt-25.12  -> ghcr.io/openwrt/tools:openwrt-25.12
 main           -> ghcr.io/openwrt/tools:latest
 ```
 
-The OpenWrt tools image is an acceleration artifact only. It never replaces `docker.io/demonccc/openwrt-builder:latest` as the main build container.
+The OpenWrt tools image is an acceleration artifact only. It never replaces the main `<namespace>/openwrt-builder` container.
 
 `scripts/build.py` uses `skopeo` to pull the OCI image and `umoci` to unpack `/prebuilt_tools`. It then exposes the official `build_dir/host` and `staging_dir/host` trees to the OpenWrt checkout and invokes OpenWrt's own `scripts/ext-tools.sh --refresh` mechanism.
 
@@ -159,34 +161,78 @@ Its behavior is:
 - Pushes to `main` that change either file build and publish the image to Docker Hub.
 - `workflow_dispatch` can publish the image manually.
 
-Published tags are:
+The target image is resolved as:
 
 ```text
-docker.io/demonccc/openwrt-builder:latest
-docker.io/demonccc/openwrt-builder:sha-<commit>
+docker.io/<DOCKERHUB_USERNAME>/openwrt-builder
 ```
+
+and publishes:
+
+```text
+docker.io/<DOCKERHUB_USERNAME>/openwrt-builder:latest
+docker.io/<DOCKERHUB_USERNAME>/openwrt-builder:sha-<commit>
+```
+
+The firmware and validation workflows resolve the same namespace when pulling `openwrt-builder:latest`, so a fork can use its own published image without editing YAML files.
 
 The workflow uses Docker Buildx and GitHub Actions layer caching for the Docker image itself.
 
-## Docker Hub secret
+## Docker Hub configuration
 
-Publication requires one GitHub Actions repository secret:
+Docker Hub publication has two pieces of repository configuration:
 
 ```text
-DOCKERHUB_TOKEN
+DOCKERHUB_USERNAME  GitHub Actions variable
+DOCKERHUB_TOKEN     GitHub Actions secret
 ```
 
-Create a Docker Hub access token with permission to push `demonccc/openwrt-builder`, then add it in the repository under:
+### Username variable
+
+`DOCKERHUB_USERNAME` is the Docker Hub account or organization that owns the `openwrt-builder` repository.
+
+The workflows resolve it as:
+
+```text
+vars.DOCKERHUB_USERNAME || github.repository_owner
+```
+
+This means a fork whose GitHub owner and Docker Hub username are the same works without setting the variable. If they are different, configure it under:
 
 ```text
 Settings
   -> Secrets and variables
   -> Actions
+  -> Variables
+  -> New repository variable
+```
+
+Use:
+
+```text
+Name:  DOCKERHUB_USERNAME
+Value: <your Docker Hub username or organization>
+```
+
+For this repository the effective value is `demonccc`.
+
+### Token secret
+
+Create a Docker Hub access token with permission to push `<DOCKERHUB_USERNAME>/openwrt-builder`, then add it under:
+
+```text
+Settings
+  -> Secrets and variables
+  -> Actions
+  -> Secrets
   -> New repository secret
 ```
 
-Use `DOCKERHUB_TOKEN` as the secret name.
+Use:
 
-No `DOCKERHUB_USERNAME` secret is needed. The Docker Hub username and namespace are intentionally fixed to `demonccc` in the workflow.
+```text
+Name:  DOCKERHUB_TOKEN
+Value: <Docker Hub access token>
+```
 
-The secret is only needed for publishing. Pull-request image validation does not log in to Docker Hub.
+The token is only needed for publishing. Pull-request image validation does not log in to Docker Hub.

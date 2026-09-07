@@ -1,8 +1,8 @@
-# OpenWrt snapshot full source — no SDK example
+# OpenWrt snapshot full source
 
-This profile demonstrates mode 4, `full-source`, from current OpenWrt `main`.
+This profile uses mode 4, `full-source`, from current OpenWrt `main`.
 
-`REF=main` shows that full-source can use an arbitrary branch rather than a release. `SDK=none` forces host tools and target toolchain to build from source. `FEED_NAMES=packages luci routing` shows that a full build can still limit which feeds contribute their complete package universe.
+`REF=main` means the build follows an arbitrary source branch rather than an exact release. `SDK=none` forces host tools and the target toolchain to build from source. `FEED_NAMES=packages luci routing` limits which feeds contribute their complete package universe.
 
 The builder enables `CONFIG_ALL`, `CONFIG_ALL_KMODS`, and `CONFIG_ALL_NONSHARED`. Unlike `selective-source`, package scope is intentionally broad rather than limited to firmware packages plus dependencies.
 

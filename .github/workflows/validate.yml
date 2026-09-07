@@ -47,7 +47,14 @@ jobs:
             -e HOME=/tmp \
             -v "$GITHUB_WORKSPACE:/workspace" \
             "$IMAGE" \
-            python3 -m py_compile scripts/build.py
+            python3 -m py_compile scripts/build.py tests/test_build.py
+
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            "$IMAGE" \
+            python3 -m unittest discover -s tests -v
 
           docker run --rm \
             --user "$(id -u):$(id -g)" \

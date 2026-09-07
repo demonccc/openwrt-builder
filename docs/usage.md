@@ -74,13 +74,14 @@ docker run --rm `
 
 The checkout mount keeps `.work/`, `artifact/`, and any requested log files in the local repository directory. Linux/macOS examples map the process to the current host UID/GID so generated files are not owned by root. Docker Desktop handles the bind mount on Windows.
 
-## Build verbosity and log files
+## Build parameters for diagnostics
 
-The `build` command exposes two diagnostic parameters:
+The `build` command exposes the diagnostic parameters directly:
 
 ```text
 --verbosity normal|verbose|debug
 --log-file <path>
+--jobs <count>
 ```
 
 `--verbosity` defaults to `normal`:
@@ -89,7 +90,7 @@ The `build` command exposes two diagnostic parameters:
 - `verbose`: detailed OpenWrt build output, useful when the normal log hides the failing command.
 - `debug`: maximum diagnostic output, including command tracing. Use this for difficult build failures.
 
-The builder translates these human-readable values internally to OpenWrt's native make verbosity:
+The builder translates those human-readable values internally to OpenWrt's native make verbosity:
 
 ```text
 normal  -> default OpenWrt behavior
@@ -101,11 +102,13 @@ The native value is added directly to each OpenWrt `make` command by `scripts/bu
 
 `--log-file` is optional. When present, the builder creates the parent directory if needed, writes the complete stdout/stderr stream to that file, and continues showing the same output in the terminal. The file is overwritten for each build invocation.
 
+`--jobs` controls OpenWrt make parallelism. For normal builds, omit it to use the CPU count visible inside Docker. For troubleshooting, `--jobs 1` keeps failures and command output ordered.
+
 The builder does not automatically retry a failed `make`. A line such as `Please re-run make with -j1 V=s or V=sc` is emitted by OpenWrt itself; it is only a troubleshooting recommendation.
 
-### Recommended local diagnostic build
+### Recommended local Archer A9 diagnostic build
 
-For the Archer A9 failure, use `debug`, save the complete log, and use one make job so the output is ordered.
+For the current Archer A9 failure, use `debug`, save the complete log, and use one make job.
 
 Linux / macOS:
 
@@ -197,7 +200,7 @@ mydockeruser/openwrt-builder:latest
 logs/build.log
 ```
 
-The workflow does not translate verbosity itself. It passes both parameters directly to `scripts/build.py`, so local Docker and GitHub Actions use the same CLI and the same implementation:
+The workflow passes both parameters directly to `scripts/build.py`, so local Docker and GitHub Actions use the same CLI and the same implementation:
 
 ```bash
 python3 scripts/build.py build \

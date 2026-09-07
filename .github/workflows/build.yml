@@ -14,14 +14,14 @@ on:
         default: demonccc/openwrt-builder:latest
         type: string
       verbosity:
-        description: OpenWrt make verbosity
+        description: Build log detail level
         required: true
         default: normal
         type: choice
         options:
           - normal
-          - s
-          - sc
+          - verbose
+          - debug
 
 permissions:
   contents: write
@@ -77,9 +77,20 @@ jobs:
             -v "$GITHUB_WORKSPACE:/workspace"
           )
 
-          if [ "$VERBOSITY" != "normal" ]; then
-            docker_args+=(-e "MAKEFLAGS=V=$VERBOSITY")
-          fi
+          case "$VERBOSITY" in
+            normal)
+              ;;
+            verbose)
+              docker_args+=(-e "MAKEFLAGS=V=s")
+              ;;
+            debug)
+              docker_args+=(-e "MAKEFLAGS=V=sc")
+              ;;
+            *)
+              echo "Unsupported verbosity level: $VERBOSITY" >&2
+              exit 1
+              ;;
+          esac
 
           docker run "${docker_args[@]}" \
             "$IMAGE" \

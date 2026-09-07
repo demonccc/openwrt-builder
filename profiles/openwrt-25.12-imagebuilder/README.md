@@ -1,13 +1,11 @@
-# OpenWrt 25.12 ImageBuilder build
+# OpenWrt 25.12 ImageBuilder example
 
-Builds an OpenWrt 25.12.5 image using the official prebuilt ImageBuilder.
+This profile demonstrates **mode 1: ImageBuilder**, the fastest build path.
 
-- Method: `imagebuilder`
-- Target: `x86/64`
-- Device: `generic`
-- Release: `25.12.5`
-- Source: official OpenWrt ImageBuilder
+Use it when the device is already supported by the official release and no source patch is required. The builder downloads the official OpenWrt 25.12.5 ImageBuilder and assembles the image from already-built packages selected in `packages`.
 
-This profile is the generic stable 25.12 base for ImageBuilder builds.
+Nothing in the OpenWrt source tree is compiled locally: no kernel, toolchain, host tools, or userspace packages. This should be the default choice whenever an official ImageBuilder can produce the required firmware.
 
-See the [profile reference](../../docs/profiles.md) for ImageBuilder behavior and profile file semantics.
+When copying the profile for another device, change the ImageBuilder URL to the correct target/subtarget and set `DEVICE` to a profile supported by that ImageBuilder.
+
+See the [profile reference](../../docs/profiles.md) for ImageBuilder behavior.

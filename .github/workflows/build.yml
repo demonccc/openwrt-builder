@@ -13,7 +13,8 @@ permissions:
   contents: write
 
 env:
-  BUILDER_IMAGE: docker.io/demonccc/openwrt-builder:latest
+  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME || github.repository_owner }}
+  BUILDER_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME || github.repository_owner }}/openwrt-builder:latest
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.profile }}

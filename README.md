@@ -37,16 +37,7 @@ The upstream image is:
 docker.io/demonccc/openwrt-builder:latest
 ```
 
-Docker Hub integration must be configured explicitly:
-
-```text
-DOCKERHUB_USERNAME  GitHub Actions repository variable
-DOCKERHUB_TOKEN     GitHub Actions repository secret
-```
-
-For this repository, `DOCKERHUB_USERNAME` must be set to `demonccc`.
-
-Forks can publish and consume `openwrt-builder` from their own Docker Hub account or organization by setting both values for their namespace. There is intentionally no automatic fallback from the GitHub repository owner to the Docker Hub username: the two namespaces are independent and may belong to different people.
+Docker Hub integration is configured explicitly with the `DOCKERHUB_USERNAME` GitHub Actions repository variable and the `DOCKERHUB_TOKEN` repository secret. For this repository, `DOCKERHUB_USERNAME` is `demonccc`. Forks set those values to their own Docker Hub account or organization; there is intentionally no automatic namespace fallback.
 
 The repository checkout is mounted into `/workspace`; builder code and profiles are not baked into the image.
 

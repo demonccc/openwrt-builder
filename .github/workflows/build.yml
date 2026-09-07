@@ -60,7 +60,8 @@ jobs:
             --user "$(id -u):$(id -g)" \
             -e HOME=/tmp \
             -v "$GITHUB_WORKSPACE:/workspace" \
-            "$IMAGE" build \
+            "$IMAGE" \
+            python3 scripts/build.py build \
             --profile "$PROFILE" \
             --output artifact \
             --jobs "$(nproc)"

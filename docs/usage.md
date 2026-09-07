@@ -72,11 +72,11 @@ docker run --rm `
   --output artifact
 ```
 
-The checkout mount keeps `.work/`, `artifact/`, and any requested log files in the local repository directory. Linux/macOS examples map the process to the current host UID/GID so generated files are not owned by root. Docker Desktop handles the bind mount on Windows.
+The checkout mount keeps `.work/`, `artifact/`, and any requested local log files in the repository directory. Linux/macOS examples map the process to the current host UID/GID so generated files are not owned by root. Docker Desktop handles the bind mount on Windows.
 
 ## Build parameters for diagnostics
 
-The `build` command exposes the diagnostic parameters directly:
+The `build` command exposes diagnostic parameters directly:
 
 ```text
 --verbosity normal|verbose|debug
@@ -100,7 +100,7 @@ debug   -> V=sc
 
 The native value is added directly to each OpenWrt `make` command by `scripts/build.py`; callers do not need to know or set `V` or `MAKEFLAGS` themselves.
 
-`--log-file` is optional. When present, the builder creates the parent directory if needed, writes the complete stdout/stderr stream to that file, and continues showing the same output in the terminal. The file is overwritten for each build invocation.
+`--log-file` is optional and intended for local execution. When present, the builder creates the parent directory if needed, writes the complete stdout/stderr stream to that file, and continues showing the same output in the terminal. The file is overwritten for each build invocation and must be outside `--output`, because the firmware output directory is recreated by the builder.
 
 `--jobs` controls OpenWrt make parallelism. For normal builds, omit it to use the CPU count visible inside Docker. For troubleshooting, `--jobs 1` keeps failures and command output ordered.
 
@@ -148,8 +148,6 @@ logs/archer-a9-v6.log
 .work/archer-a9-v6/openwrt/
 ```
 
-The log path should be kept outside the firmware output directory because `artifact/` is recreated during a successful build.
-
 ## Use a locally built builder image
 
 If the Docker environment itself is being changed, build the image locally as documented in [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md), then replace the image name in the commands above with:
@@ -179,7 +177,6 @@ The workflow exposes these execution inputs:
 profile
 builder_image
 verbosity
-log_file
 ```
 
 The default builder image is:
@@ -194,28 +191,23 @@ A fork or custom environment can override it with any compatible image, for exam
 mydockeruser/openwrt-builder:latest
 ```
 
-`verbosity` uses the same `normal`, `verbose`, and `debug` values as local Docker execution. `log_file` defaults to:
+`verbosity` uses the same `normal`, `verbose`, and `debug` values as local Docker execution. GitHub Actions does not use `--log-file`, because the workflow already retains the complete job log.
 
-```text
-logs/build.log
-```
-
-The workflow passes both parameters directly to `scripts/build.py`, so local Docker and GitHub Actions use the same CLI and the same implementation:
+The workflow passes verbosity directly to `scripts/build.py`:
 
 ```bash
 python3 scripts/build.py build \
   --profile "$PROFILE" \
   --output artifact \
   --jobs "$(nproc)" \
-  --verbosity "$VERBOSITY" \
-  --log-file "$LOG_FILE"
+  --verbosity "$VERBOSITY"
 ```
 
-The build log is uploaded as a separate GitHub Actions artifact even when the firmware build fails. Successful builds also upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
+Successful builds upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
 
 The builder image used to run firmware is intentionally independent from `DOCKERHUB_USERNAME`. `DOCKERHUB_USERNAME` belongs only to the Docker image publication workflow and identifies where that workflow pushes images.
 
-There is no separate GitHub Actions implementation for source preparation, SDK selection, OpenWrt prebuilt host tools, verbosity, or build logging. `scripts/build.py` performs that logic itself. This is why local Docker execution and GitHub Actions follow the same build path.
+There is no separate GitHub Actions implementation for source preparation, SDK selection, OpenWrt prebuilt host tools, or verbosity. `scripts/build.py` performs that logic itself. This is why local Docker execution and GitHub Actions follow the same build path.
 
 If the requested builder image is unavailable, the workflow builds the repository Dockerfile locally and then runs the same command inside that image.
 

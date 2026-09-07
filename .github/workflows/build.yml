@@ -92,7 +92,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-${{ inputs.profile }}-${{ github.run_number }}-log
+          name: openwrt-${{ inputs.profile }}-${{ github.run_number }}-build-log
           path: ${{ inputs.log_file }}
           if-no-files-found: warn
           retention-days: 14

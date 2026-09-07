@@ -13,13 +13,17 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Python syntax
-        run: python3 -m py_compile scripts/build.py
+      - name: Build builder image
+        run: docker build -t openwrt-builder .
 
       - name: Validate profiles
-        run: python3 scripts/build.py validate
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            openwrt-builder validate

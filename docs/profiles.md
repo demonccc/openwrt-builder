@@ -1,90 +1,52 @@
 # Profile reference
 
-A profile is a directory under `profiles/` describing one reproducible OpenWrt firmware build. The profile README explains *why that profile exists*; this document explains *how the builder works*.
-
-For execution, GitHub Actions, runners, and command examples, see [Using OpenWrt Builder](usage.md).
+A profile is a directory under `profiles/` that describes one OpenWrt firmware build. Generic builder behavior belongs here; a profile's own `README.md` should explain only why that profile exists and its profile-specific choices.
 
 ## Profile structure
 
-Every profile has:
+Every profile contains `settings`, `packages`, `feeds`, and `git-packages`. `README.md` and `files/` are optional. `source-build-targets` is required only by `release-patched`.
 
-```text
-profiles/my-profile/
-  settings
-  packages
-  feeds
-  git-packages
-```
+## 1. ImageBuilder
 
-Optional entries:
-
-```text
-  README.md
-  files/
-  source-build-targets   # required by release-patched
-```
-
-`packages` always describes the final firmware package selection. `source-build-targets` has a different meaning: it describes OpenWrt make targets whose source must be rebuilt because a release-patched profile changes them.
-
-## The four build modes
-
-### 1. ImageBuilder
+ImageBuilder downloads an already-built OpenWrt ImageBuilder and assembles firmware from binary packages:
 
 ```text
 METHOD=imagebuilder
-IMAGEBUILDER_URL=https://downloads.openwrt.org/.../openwrt-imagebuilder-....tar.zst
+IMAGEBUILDER_URL=https://downloads.openwrt.org/releases/.../openwrt-imagebuilder-....tar.zst
 DEVICE=generic
 ```
 
-Use this whenever an official ImageBuilder already supports the device and no source patch is needed.
+No OpenWrt source packages compile. `packages` controls final firmware contents. `feeds` and `git-packages` are ignored. This is the fastest mode.
 
-The builder downloads the official ImageBuilder and runs `make image` with the contents of `packages`. Kernel, toolchain, host tools, and userspace packages are already built by OpenWrt, so this is the fastest mode.
+## 2. `release-patched`
 
-`feeds` and `git-packages` are ignored in this mode.
-
-Reference profiles: `openwrt-25.12-imagebuilder`, `openwrt-24.10-imagebuilder`.
-
-### 2. release-patched
+Use this when a custom source tree is based on an exact released OpenWrt version and only part of that tree must be rebuilt:
 
 ```text
 METHOD=source
 BUILD_MODE=release-patched
 REPOSITORY=https://github.com/example/openwrt.git
-REF=my-release-patch
+REF=my-patched-branch
+BASE_REF=v25.12.5
+SDK=auto
 TARGET=ath79
 SUBTARGET=generic
 DEVICE=vendor_device
-SDK_URL=https://downloads.openwrt.org/releases/.../openwrt-sdk-....tar.zst
-FEED_NAMES=packages luci routing
 ```
 
-Use this when the source tree is based on a published OpenWrt release but contains a patch that requires part of the target or package tree to be rebuilt.
+`REF` is the custom source ref. `BASE_REF` is the exact official release compatibility contract and must be a tag such as `v25.12.5`. The builder checks that it is an ancestor of the custom source.
 
-The goal is to avoid rebuilding unrelated release packages.
-
-Algorithm:
-
-1. Clone the patched OpenWrt source tree.
-2. Reuse host tools and target toolchain from the matching official SDK.
-3. Compile the patched target/kernel.
-4. Compile only the explicit OpenWrt make targets in `source-build-targets`.
-5. Generate an ImageBuilder from the patched source state.
-6. Add locally produced APKs to that generated ImageBuilder.
-7. Assemble the final firmware using `packages`; unchanged packages are resolved from the official release repositories.
-
-Example `source-build-targets`:
+The profile declares affected OpenWrt make targets in `source-build-targets`, for example:
 
 ```text
 package/kernel/mac80211/compile
 ```
 
-`target/linux/compile` is automatic and must not be repeated there.
+The builder compiles the target/kernel and those targets, creates a custom ImageBuilder, injects the locally built APKs, and replaces its repository configuration with the repository configuration from the official ImageBuilder matching `BASE_REF`. Unchanged packages therefore resolve from the exact base release rather than a snapshot.
 
-The SDK must match the release baseline, target, subtarget, libc, compiler, and ABI. This mode is intended for release-based patches, not arbitrary moving snapshots.
+`BASE_REF` cannot prove arbitrary ABI compatibility. The profile author must ensure that differences from the base release are limited to changes whose affected targets are rebuilt.
 
-Reference profile: `archer-a9-v6`.
-
-### 3. selective-source
+## 3. `selective-source`
 
 ```text
 METHOD=source
@@ -97,15 +59,13 @@ DEVICE=generic
 FEED_NAMES=packages luci routing
 ```
 
-Use this for snapshots, arbitrary source revisions, or any build where source compilation is required and matching release binaries should not be assumed reusable.
+`REF` may be any branch, tag, or commit. Packages selected for the firmware plus their dependencies compile from that same source tree.
 
-The builder selects the target and the entries in `packages`, then lets OpenWrt resolve dependencies. Only that firmware dependency graph is intentionally compiled. Merely being present in a feed does not cause a package to be built.
+`FEED_NAMES` limits which feeds are available for package resolution; it does not compile every package in those feeds.
 
-`FEED_NAMES` in this mode limits which feeds are updated and made available for dependency resolution. It does **not** mean that every package from those feeds is compiled.
+## 4. `full-source`
 
-Reference profiles: `openwrt-25.12-source`, `snapshot-source`.
-
-### 4. full-source
+`full-source` accepts the same kinds of source refs as `selective-source`, but changes package scope:
 
 ```text
 METHOD=source
@@ -115,63 +75,57 @@ REF=main
 TARGET=x86
 SUBTARGET=64
 DEVICE=generic
-```
-
-Use this only when the goal is to build the broad distribution/package universe from source rather than one firmware dependency graph.
-
-The builder installs the selected feeds and enables:
-
-```text
-CONFIG_ALL=y
-CONFIG_ALL_KMODS=y
-CONFIG_ALL_NONSHARED=y
-```
-
-With no `FEED_NAMES`, all default feeds are prepared. With:
-
-```text
+SDK=none
 FEED_NAMES=packages luci routing
 ```
 
-only those feeds are installed before the full package selections are enabled. The OpenWrt core tree still participates.
+The builder enables `CONFIG_ALL=y`, `CONFIG_ALL_KMODS=y`, and `CONFIG_ALL_NONSHARED=y`. With `FEED_NAMES`, it installs all package definitions from those feeds before the build. Without it, all default feeds are installed.
 
-This is intentionally the slowest mode and is the one expected to produce the largest compile workload.
+The difference between `selective-source` and `full-source` is package scope, not SDK usage.
 
-Reference profile: `snapshot-full-source`.
+## SDK acceleration
 
-## Feed semantics by mode
+SDK selection is independent from `BUILD_MODE` and is available to all source modes.
 
-The same `FEED_NAMES` setting intentionally has mode-specific scope:
+### `SDK=auto`
 
-| Mode | Meaning of `FEED_NAMES` |
-| --- | --- |
-| ImageBuilder | Not used |
-| release-patched | Limit source/feed preparation for patched components; final unchanged packages come from release repositories |
-| selective-source | Feeds available to resolve explicitly selected firmware packages and dependencies |
-| full-source | Feeds whose package definitions are installed into the source tree before the full package selections are enabled |
+`SDK=auto` is also the default when neither `SDK` nor `SDK_URL` is set.
 
-This distinction prevents selective builds from accidentally turning into whole-feed builds while still allowing full-source to restrict the package universe.
+For `release-patched`, the release is derived from `BASE_REF`. For `selective-source` and `full-source`, automatic resolution is possible only when `REF` is an exact release tag such as `v25.12.5`.
 
-## Source acceleration
+The builder reads the official target directory under `downloads.openwrt.org` and finds the matching SDK automatically, including its GCC/libc suffix.
 
-Source modes may use:
+For arbitrary refs such as `main`, `openwrt-25.12`, or a custom branch, `SDK=auto` safely falls back to building host tools and the target toolchain from source.
+
+### `SDK=none`
+
+Disables SDK reuse. OpenWrt builds host tools and target toolchain from source. It does not change package scope. `release-patched + SDK=none` still reuses unchanged packages from `BASE_REF`.
+
+### `SDK_URL`
+
+An explicit override:
 
 ```text
-SDK_URL=...
-TOOLCHAIN_URL=...
+SDK_URL=https://downloads.openwrt.org/releases/.../openwrt-sdk-....tar.zst
 ```
 
-They are mutually exclusive.
+Use it to pin a known-compatible SDK. `SDK` and `SDK_URL` are mutually exclusive.
 
-`SDK_URL` reuses the SDK host staging tree and target toolchain. `TOOLCHAIN_URL` reuses only a compatible target toolchain while OpenWrt still builds host tools.
+## Source references
 
-`release-patched` requires `SDK_URL` because its purpose is specifically to reuse the published release build environment while rebuilding only patched components.
+`selective-source` and `full-source` accept any branch, tag, or commit in `REF`. `release-patched` additionally requires exact `BASE_REF=vX.Y.Z` because it reuses release binaries.
 
-For a moving snapshot, do not reuse a random snapshot SDK: it must correspond to the source state closely enough to be ABI-compatible. The generic `snapshot-source` example therefore performs a clean selective source build.
+## Feed selection
+
+`FEED_NAMES=packages luci routing` accepts space- or comma-separated names.
+
+In `selective-source` and `release-patched`, feeds are package sources; compilation remains driven by firmware selection, dependencies, and explicit patched targets. In `full-source`, selected feeds expose their complete package universe to the `CONFIG_ALL*` build.
+
+If `git-packages` is used in a non-full build, all feeds are indexed because dependencies of external packages cannot be known in advance.
 
 ## `packages`
 
-One package per line:
+One package per line. A leading `-` excludes a package:
 
 ```text
 luci
@@ -179,71 +133,20 @@ dnsmasq-full
 -dnsmasq
 ```
 
-A normal name includes the package in the final firmware; a leading `-` excludes it.
-
-In ImageBuilder and release-patched modes, the list becomes the ImageBuilder `PACKAGES` argument. In selective/full source modes, entries are translated to `CONFIG_PACKAGE_<name>=y/n` and OpenWrt resolves dependencies.
-
-Do not list every transitive dependency. List intentional firmware contents and let OpenWrt resolve the graph.
-
-## `source-build-targets`
-
-This file is only for `BUILD_MODE=release-patched` and is required there.
-
-It contains one OpenWrt make target per line. These are source components known to be affected by the patch and therefore explicitly rebuilt.
-
-Example:
-
-```text
-package/kernel/mac80211/compile
-```
-
-Use OpenWrt source-package build targets, not output package names such as `kmod-ath9k`. A single OpenWrt source package can emit several binary packages, so the make target is the unambiguous unit to rebuild.
+List deliberate firmware choices and let OpenWrt resolve dependencies.
 
 ## `feeds`
 
-For source modes, each non-comment entry uses standard OpenWrt feed syntax and is appended to `feeds.conf.default` before feed update/install.
-
-Supported prefixes:
-
-```text
-src-git
-src-git-full
-src-link
-src-cpy
-```
-
-For ImageBuilder, the file exists only for consistent profile structure and is ignored.
+Source modes accept standard OpenWrt feed entries such as `src-git`, `src-git-full`, `src-link`, and `src-cpy`. ImageBuilder ignores this file.
 
 ## `git-packages`
 
-Source profiles may load an OpenWrt package directly from another Git repository:
-
-```text
-REPOSITORY [REF] [PATH]
-```
-
-Examples:
-
-```text
-https://github.com/example/luci-app-example.git
-https://github.com/example/luci-app-example.git v1.2.0
-https://github.com/example/openwrt-apps.git main luci-app-example
-```
-
-The selected package directory is copied under `package/openwrt-builder/` in the temporary source tree.
-
-Because arbitrary Git packages may have feed dependencies that cannot be known beforehand, selective source profiles containing `git-packages` fall back to indexing/installing all configured feeds before the Git package is added.
+Source modes can import OpenWrt package directories directly from Git using `REPOSITORY [REF] [PATH]`. The package must still be selected in `packages` if it should enter the firmware. ImageBuilder ignores this file.
 
 ## Embedded files
 
-An optional `files/` directory mirrors the OpenWrt root filesystem. Source modes merge it into the source tree's `files/`; ImageBuilder mode passes it through `FILES=...`.
-
-Prefer `/etc/uci-defaults/` for first-boot configuration changes when replacing whole `/etc/config/*` files is unnecessary.
+An optional `files/` directory mirrors the generated root filesystem. Prefer `/etc/uci-defaults/` scripts for changes that should apply after OpenWrt creates device defaults.
 
 ## Validation
 
-`python3 scripts/build.py validate` validates every profile.
-
-For source profiles it validates `BUILD_MODE`, source settings, feed syntax, package syntax, SDK/toolchain mutual exclusivity, and the presence of `source-build-targets` for release-patched profiles.
-
-For ImageBuilder profiles it validates the ImageBuilder URL/device settings and the common profile files.
+Run `python3 scripts/build.py validate`, or use Docker as documented in [Using OpenWrt Builder](usage.md). Validation checks mode requirements, SDK combinations, package/feed syntax, and release-patched target declarations.

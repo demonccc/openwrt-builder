@@ -1,21 +1,9 @@
-# Linksys Velop WHW03 V2
+# Linksys Velop WHW03 V2 — ImageBuilder example
 
-Builds OpenWrt 25.12.5 for the Linksys Velop WHW03 V2 using the official OpenWrt ImageBuilder.
+This profile demonstrates mode 1 on a real router.
 
-- Method: `imagebuilder`
-- Target: `ipq40xx/generic`
-- Device: `linksys_whw03v2`
-- Release: `25.12.5`
-- Source: official OpenWrt ImageBuilder
+The Linksys Velop WHW03 V2 is already supported by the selected OpenWrt 25.12 release, so no custom kernel or package source needs to compile. The official ImageBuilder assembles the device firmware directly from prebuilt packages.
 
-Profile-specific package choices:
+This is the device-specific counterpart to the generic `openwrt-24.10-imagebuilder` example.
 
-- replace ath10k-ct with the upstream ath10k driver and firmware for QCA4019 and QCA9888;
-- replace `wpad-basic-mbedtls` with `wpad-mbedtls`;
-- add LuCI and firmware management tools;
-- add batman-adv, usteer, and irqbalance packages;
-- add `iputils-arping`, `tcpdump`, and `ethtool` for diagnostics.
-
-No custom network topology or network configuration is embedded by this profile.
-
-See the [profile reference](../../docs/profiles.md) for ImageBuilder behavior and profile file semantics.
+See [Profile reference](../../docs/profiles.md).

@@ -1,8 +1,0 @@
-# OpenWrt ImageBuilder settings.
-#
-# METHOD=imagebuilder uses an official prebuilt ImageBuilder instead of
-# compiling OpenWrt from source.
-
-METHOD=imagebuilder
-IMAGEBUILDER_URL=https://downloads.openwrt.org/snapshots/targets/x86/64/openwrt-imagebuilder-x86-64.Linux-x86_64.tar.zst
-DEVICE=generic

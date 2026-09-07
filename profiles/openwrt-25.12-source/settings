@@ -1,11 +1,10 @@
-# Mode 3: selective source build from OpenWrt 25.12.
-# Only firmware-selected packages and their dependencies are compiled.
-
+# Mode 3: selective source. This profile deliberately demonstrates SDK_URL.
 METHOD=source
 BUILD_MODE=selective-source
 REPOSITORY=https://github.com/openwrt/openwrt.git
-REF=openwrt-25.12
+REF=v25.12.5
 TARGET=x86
 SUBTARGET=64
 DEVICE=generic
+SDK_URL=https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-sdk-25.12.5-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
 FEED_NAMES=packages luci routing

@@ -1,96 +1,63 @@
 # Using OpenWrt Builder
 
-This guide explains how to use the repository. For the profile file format and build-method details, see [Profile reference](profiles.md).
+This guide covers execution. See [Profile reference](profiles.md) for build-mode and profile semantics.
 
-## Fork the repository
+## Recommended local execution: Docker
 
-Fork `demonccc/openwrt-builder` to your own GitHub account or organization.
+`scripts/build.py` performs the real OpenWrt build, including the final `make`; it is not only a configuration generator. Running it directly therefore requires all OpenWrt host dependencies.
 
-The fork contains the build workflows, the builder script, and a set of reusable profiles. The included profiles are examples and starting points; they are not required configuration.
-
-You can delete any profiles you do not plan to use and keep only the profiles relevant to your builds.
-
-## Create or customize a profile
-
-Choose the included profile that is closest to the OpenWrt version and build method you need, then copy the complete directory.
-
-For example, to create a source build based on OpenWrt 25.12:
+Build the repository image:
 
 ```bash
-cp -r profiles/openwrt-25.12-source profiles/my-router
+docker build -t openwrt-builder .
 ```
 
-For an ImageBuilder-based profile:
+Validate profiles:
 
 ```bash
-cp -r profiles/openwrt-25.12-imagebuilder profiles/my-router
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  openwrt-builder validate
 ```
 
-Edit the copied profile according to the [profile reference](profiles.md).
+Build a profile:
 
-A source profile can point to the official OpenWrt repository or to any compatible custom OpenWrt fork. The `archer-a9-v6` profile is an example: it builds from `demonccc/openwrt` because that fork contains the QCN5502 support required by that device.
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  openwrt-builder build \
+  --profile archer-a9-v6 \
+  --output artifact \
+  --jobs "$(nproc)"
+```
 
-An ImageBuilder profile points to an official or otherwise compatible OpenWrt ImageBuilder archive and assembles firmware from packages already built for that target.
+The bind mount keeps `.work/` and `artifact/` in the working directory, while the container supplies the Ubuntu/OpenWrt build dependencies. OpenWrt must not build as root; the image has a non-root default user and the examples map to the host UID/GID.
 
-## Build with GitHub Actions
+## Direct Python execution
 
-Open **Actions** in your fork and run **Build OpenWrt firmware**.
-
-The workflow has a single input:
-
-- `profile`: directory name under `profiles/`.
-
-The selected profile is the complete build recipe. Source repository, source ref, target, device, package selection, feeds, optional external toolchain, and other build behavior come from the profile itself.
-
-The workflow runs on GitHub-hosted Ubuntu 24.04 runners.
-
-Every successful workflow run:
-
-1. uploads the generated firmware as a GitHub Actions artifact;
-2. creates a GitHub Release containing the generated firmware files.
-
-Release creation is the default behavior for all profiles so users can find firmware from the repository Releases page without browsing individual workflow runs.
-
-For source builds the workflow frees additional disk space and installs the OpenWrt source-build dependencies before compiling.
-
-For ImageBuilder builds it skips the source-build disk cleanup and toolchain dependency installation because ImageBuilder assembles firmware from already-built packages.
-
-## Build locally
-
-The same builder can be used outside GitHub Actions when the required tools are installed.
-
-Validate all profiles:
+Still supported when the host already has the dependencies:
 
 ```bash
 python3 scripts/build.py validate
+python3 scripts/build.py build --profile openwrt-25.12-source
 ```
 
-Validate one profile:
+Docker is the recommended portable path.
 
-```bash
-python3 scripts/build.py validate --profile archer-a9-v6
-```
+## GitHub Actions
 
-Build a source profile:
+Run **Build OpenWrt firmware** and choose a profile directory. The workflow builds this same `Dockerfile` and executes `scripts/build.py` inside it, so local and CI builds share the same environment.
 
-```bash
-python3 scripts/build.py build --profile archer-a9-v6
-```
+Successful builds upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
 
-Build an ImageBuilder profile:
+## Source override
 
-```bash
-python3 scripts/build.py build --profile velop-whw03-v2-imagebuilder
-```
+`--source-ref` can temporarily override `REF`. When a profile uses explicit `SDK_URL`, the caller remains responsible for compatibility between that SDK and the overridden source.
 
-The generated files are copied to `artifact/` by default. The output also contains `BUILD_INFO`, which records the selected profile, build method, source or ImageBuilder reference, and explicit package selections.
+## Validation workflow
 
-## Embedded files and configuration
-
-Profiles can optionally contain a `files/` directory to embed files directly into the generated firmware, including OpenWrt configuration or first-boot scripts.
-
-This works with both source and ImageBuilder profiles. See [Embedded files and configuration](profiles.md#embedded-files-and-configuration) in the profile reference for the exact behavior and recommended use of `/etc/uci-defaults/`.
-
-## Validation in GitHub Actions
-
-The `Validate profiles` workflow checks Python syntax and validates all profiles on `main`, feature branches matching `feat/**`, and pull requests.
+`Validate profiles` builds the Docker image and runs profile validation inside it on feature branches and pull requests.

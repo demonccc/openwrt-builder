@@ -1,6 +1,4 @@
-# Mode 4: full source build from the current OpenWrt snapshot.
-# FEED_NAMES may be set to limit which feeds are installed and compiled.
-
+# Mode 4: full source. SDK=none forces host tools and target toolchain from source.
 METHOD=source
 BUILD_MODE=full-source
 REPOSITORY=https://github.com/openwrt/openwrt.git
@@ -8,3 +6,5 @@ REF=main
 TARGET=x86
 SUBTARGET=64
 DEVICE=generic
+SDK=none
+FEED_NAMES=packages luci routing

@@ -1,9 +1,9 @@
-# OpenWrt 24.10 ImageBuilder example
+# OpenWrt 24.10 generic ImageBuilder example
 
-This profile demonstrates **mode 1: ImageBuilder**, the fastest build path.
+This profile demonstrates mode 1 with a generic x86/64 target on OpenWrt 24.10.
 
-Use it when the target device is already supported by an official OpenWrt release and no source patch is required. The builder downloads the official ImageBuilder and asks it to assemble a firmware image with the packages listed in `packages`. No kernel, toolchain, or userspace package is compiled locally.
+It is the hardware-neutral ImageBuilder example. The builder downloads the official prebuilt ImageBuilder and assembles firmware without compiling OpenWrt source packages.
 
-This example uses OpenWrt 24.10.5 on x86/64. When copying the profile for another target or release, change `IMAGEBUILDER_URL` and `DEVICE`; keep package customization in `packages`.
+Use it as a starting point when all required device support already exists in the selected release and the fastest build path is desired.
 
-`feeds` and `git-packages` are intentionally unused in this mode because the official ImageBuilder consumes already-built OpenWrt package repositories.
+See [Profile reference](../../docs/profiles.md).

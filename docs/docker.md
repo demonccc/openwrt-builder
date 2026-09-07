@@ -32,7 +32,7 @@ The image intentionally has no `ENTRYPOINT`. The caller explicitly runs the buil
 python3 scripts/build.py ...
 ```
 
-That command is always executed inside the container.
+That command is always executed inside the container. Running `scripts/build.py` directly on the host is not a supported execution path.
 
 ## Why Docker is mandatory
 

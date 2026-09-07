@@ -72,17 +72,24 @@ docker run --rm `
   --output artifact
 ```
 
-The checkout mount keeps `.work/` and `artifact/` in the local repository directory. Linux/macOS examples map the process to the current host UID/GID so generated files are not owned by root. Docker Desktop handles the bind mount on Windows.
+The checkout mount keeps `.work/`, `artifact/`, and any requested log files in the local repository directory. Linux/macOS examples map the process to the current host UID/GID so generated files are not owned by root. Docker Desktop handles the bind mount on Windows.
 
-## Build verbosity and troubleshooting
+## Build verbosity and log files
 
-The GitHub Actions build exposes human-readable verbosity levels:
+The `build` command exposes two diagnostic parameters:
 
-- `normal`: normal OpenWrt build output. This is the default.
-- `verbose`: detailed build output, useful when normal logs hide the failing command.
+```text
+--verbosity normal|verbose|debug
+--log-file <path>
+```
+
+`--verbosity` defaults to `normal`:
+
+- `normal`: normal OpenWrt build output.
+- `verbose`: detailed OpenWrt build output, useful when the normal log hides the failing command.
 - `debug`: maximum diagnostic output, including command tracing. Use this for difficult build failures.
 
-Internally, the workflow translates those values to OpenWrt's native make verbosity:
+The builder translates these human-readable values internally to OpenWrt's native make verbosity:
 
 ```text
 normal  -> default OpenWrt behavior
@@ -90,13 +97,15 @@ verbose -> V=s
 debug   -> V=sc
 ```
 
-OpenWrt only enables that behavior when `V` has command-line origin. The Docker workflow therefore injects the translated value through `MAKEFLAGS`, which GNU make treats as a command-line make variable.
+The native value is added directly to each OpenWrt `make` command by `scripts/build.py`; callers do not need to know or set `V` or `MAKEFLAGS` themselves.
+
+`--log-file` is optional. When present, the builder creates the parent directory if needed, writes the complete stdout/stderr stream to that file, and continues showing the same output in the terminal. The file is overwritten for each build invocation.
 
 The builder does not automatically retry a failed `make`. A line such as `Please re-run make with -j1 V=s or V=sc` is emitted by OpenWrt itself; it is only a troubleshooting recommendation.
 
-### Local diagnostic build
+### Recommended local diagnostic build
 
-When running Docker directly, use the native OpenWrt equivalent of the desired level. For the `debug` level, use `MAKEFLAGS=V=sc` together with one make job so the output is complete and ordered.
+For the Archer A9 failure, use `debug`, save the complete log, and use one make job so the output is ordered.
 
 Linux / macOS:
 
@@ -104,13 +113,14 @@ Linux / macOS:
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -e HOME=/tmp \
-  -e MAKEFLAGS=V=sc \
   -v "$PWD:/workspace" \
   demonccc/openwrt-builder:latest \
   python3 scripts/build.py build \
   --profile archer-a9-v6 \
   --output artifact \
-  --jobs 1
+  --jobs 1 \
+  --verbosity debug \
+  --log-file logs/archer-a9-v6.log
 ```
 
 Windows PowerShell:
@@ -118,16 +128,24 @@ Windows PowerShell:
 ```powershell
 docker run --rm `
   -e HOME=/tmp `
-  -e MAKEFLAGS=V=sc `
   -v "${PWD}:/workspace" `
   demonccc/openwrt-builder:latest `
   python3 scripts/build.py build `
   --profile archer-a9-v6 `
   --output artifact `
-  --jobs 1
+  --jobs 1 `
+  --verbosity debug `
+  --log-file logs/archer-a9-v6.log
 ```
 
-Because the repository is bind-mounted into `/workspace`, the local `.work/` directory remains available after a failed build for manual inspection.
+After a failure, the host checkout contains both:
+
+```text
+logs/archer-a9-v6.log
+.work/archer-a9-v6/openwrt/
+```
+
+The log path should be kept outside the firmware output directory because `artifact/` is recreated during a successful build.
 
 ## Use a locally built builder image
 
@@ -152,7 +170,16 @@ docker run --rm \
 
 Run **Build OpenWrt firmware** and choose a profile directory.
 
-The workflow exposes an explicit `builder_image` input. Its default is:
+The workflow exposes these execution inputs:
+
+```text
+profile
+builder_image
+verbosity
+log_file
+```
+
+The default builder image is:
 
 ```text
 demonccc/openwrt-builder:latest
@@ -164,26 +191,30 @@ A fork or custom environment can override it with any compatible image, for exam
 mydockeruser/openwrt-builder:latest
 ```
 
-The workflow also exposes the `verbosity` input with `normal`, `verbose`, and `debug`. `normal` is the default. `verbose` and `debug` are translated internally to the corresponding OpenWrt make verbosity before the first make invocation; the workflow does not wait for a failure and then re-run the build.
+`verbosity` uses the same `normal`, `verbose`, and `debug` values as local Docker execution. `log_file` defaults to:
 
-The builder image used to run firmware is intentionally independent from `DOCKERHUB_USERNAME`. `DOCKERHUB_USERNAME` belongs only to the Docker image publication workflow and identifies where that workflow pushes images.
+```text
+logs/build.log
+```
 
-The firmware workflow mounts the current checkout into `/workspace`. Inside the container it executes the same builder used locally:
+The workflow does not translate verbosity itself. It passes both parameters directly to `scripts/build.py`, so local Docker and GitHub Actions use the same CLI and the same implementation:
 
 ```bash
 python3 scripts/build.py build \
   --profile "$PROFILE" \
   --output artifact \
-  --jobs "$(nproc)"
+  --jobs "$(nproc)" \
+  --verbosity "$VERBOSITY" \
+  --log-file "$LOG_FILE"
 ```
 
-For `verbose`, the workflow passes `MAKEFLAGS=V=s` into the container. For `debug`, it passes `MAKEFLAGS=V=sc`. Every OpenWrt `make` launched by `scripts/build.py` inherits that setting.
+The build log is uploaded as a separate GitHub Actions artifact even when the firmware build fails. Successful builds also upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
 
-There is no separate GitHub Actions implementation for source preparation, SDK selection, or OpenWrt prebuilt host tools. `scripts/build.py` performs that logic itself, including resolving and pulling compatible `ghcr.io/openwrt/tools` artifacts when appropriate. This is why local Docker execution and GitHub Actions follow the same build path.
+The builder image used to run firmware is intentionally independent from `DOCKERHUB_USERNAME`. `DOCKERHUB_USERNAME` belongs only to the Docker image publication workflow and identifies where that workflow pushes images.
+
+There is no separate GitHub Actions implementation for source preparation, SDK selection, OpenWrt prebuilt host tools, verbosity, or build logging. `scripts/build.py` performs that logic itself. This is why local Docker execution and GitHub Actions follow the same build path.
 
 If the requested builder image is unavailable, the workflow builds the repository Dockerfile locally and then runs the same command inside that image.
-
-Successful builds upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
 
 ## Validation workflow
 

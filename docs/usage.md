@@ -45,6 +45,8 @@ The canonical environment definition is the repository [Dockerfile](https://gith
 
 The [Build builder image workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/docker-image.yml) validates Dockerfile changes in pull requests and publishes the image from `main` to Docker Hub.
 
+The image is intentionally an environment image. Builder code and profiles are mounted from the checkout and are not copied into the image. Therefore changes to `scripts/`, `profiles/`, or documentation do not require rebuilding the Docker image; changes to the Dockerfile do.
+
 Published tags:
 
 - `docker.io/demonccc/openwrt-builder:latest`

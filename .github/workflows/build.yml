@@ -12,6 +12,9 @@ on:
 permissions:
   contents: write
 
+env:
+  BUILDER_IMAGE: docker.io/demonccc/openwrt-builder:latest
+
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.profile }}
   cancel-in-progress: false
@@ -19,56 +22,46 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout builder
         uses: actions/checkout@v4
 
-      - name: Detect build method
+      - name: Detect source build
         id: profile
         env:
           PROFILE: ${{ inputs.profile }}
         run: |
           settings="profiles/${PROFILE}/settings"
-          if [[ ! -f "$settings" ]]; then
-            echo "Profile settings not found: $settings" >&2
-            exit 1
-          fi
-
+          test -f "$settings"
           method="$(sed -n 's/^[[:space:]]*METHOD[[:space:]]*=[[:space:]]*\([^#[:space:]]*\).*/\1/p' "$settings" | head -n1)"
-          case "$method" in
-            source|imagebuilder) ;;
-            *)
-              echo "Invalid or missing METHOD in $settings" >&2
-              exit 1
-              ;;
-          esac
-
           echo "method=$method" >> "$GITHUB_OUTPUT"
-          echo "Build method: $method"
 
       - name: Free disk space for source build
         if: ${{ steps.profile.outputs.method == 'source' }}
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
-          df -h
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
 
-      - name: Install source build dependencies
-        if: ${{ steps.profile.outputs.method == 'source' }}
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      - name: Resolve builder image
+        id: builder
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential ccache clang flex bison g++ gawk gettext git \
-            libncurses-dev libssl-dev python3-setuptools rsync swig unzip \
-            zlib1g-dev file wget libelf-dev zstd time
+          if docker pull "$BUILDER_IMAGE"; then
+            echo "image=$BUILDER_IMAGE" >> "$GITHUB_OUTPUT"
+          else
+            echo "Published builder image unavailable; building Dockerfile locally as fallback."
+            docker build -t openwrt-builder:local .
+            echo "image=openwrt-builder:local" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build firmware
         env:
           PROFILE: ${{ inputs.profile }}
+          IMAGE: ${{ steps.builder.outputs.image }}
         run: |
-          python3 scripts/build.py build \
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            "$IMAGE" \
+            python3 scripts/build.py build \
             --profile "$PROFILE" \
             --output artifact \
             --jobs "$(nproc)"

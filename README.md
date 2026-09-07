@@ -2,65 +2,49 @@
 
 Reusable OpenWrt firmware builder powered by GitHub Actions.
 
-The goal of this repository is to make it simple to create reproducible OpenWrt builds without mixing build automation with the OpenWrt source tree itself.
+This root README is intentionally an index. The canonical explanation of how builds work lives under [`docs/`](https://github.com/demonccc/openwrt-builder/tree/main/docs), while each profile README explains only why that profile exists and its profile-specific choices.
 
-You can fork this repository, keep only the profiles you need, create your own profiles from the included bases, and build firmware from official OpenWrt sources, official ImageBuilders, or custom OpenWrt forks.
+## Build modes
 
-## Source build modes
+| Mode | What it compiles |
+| --- | --- |
+| **1. ImageBuilder** | Nothing from source; assembles firmware from prebuilt OpenWrt artifacts |
+| **2. `release-patched`** | Only target/kernel/package components affected by a patch; unchanged packages come from the exact base release |
+| **3. `selective-source`** | Only packages selected for the firmware plus their dependencies |
+| **4. `full-source`** | The broad package universe from source, optionally limited to selected feeds |
 
-Source-build acceleration is completely optional and is controlled by each profile.
+`SDK` is independent from the build mode. It controls build acceleration, not package scope. See the canonical [Profile reference](https://github.com/demonccc/openwrt-builder/blob/main/docs/profiles.md).
 
-A profile with only the normal source settings performs a full OpenWrt source build:
+## Reference profiles
+
+Only these profiles are kept intentionally:
+
+| Profile | Mode | Purpose |
+| --- | --- | --- |
+| [`velop-whw03-v2-imagebuilder`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/velop-whw03-v2-imagebuilder/README.md) | ImageBuilder | Real device profile using OpenWrt 25.12 ImageBuilder |
+| [`openwrt-24.10-imagebuilder`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-24.10-imagebuilder/README.md) | ImageBuilder | Generic x86/64 ImageBuilder profile for OpenWrt 24.10 |
+| [`archer-a9-v6`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/README.md) | `release-patched` | QCN5502/ath9k patch with unchanged 25.12.5 release packages |
+| [`openwrt-25.12-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/README.md) | `selective-source` | Selective source build on OpenWrt 25.12.5 |
+| [`snapshot-full-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/snapshot-full-source/README.md) | `full-source` | Full source build from current OpenWrt main |
+
+## Builder image
+
+The canonical OpenWrt build environment is published as:
 
 ```text
-METHOD=source
-REPOSITORY=https://github.com/openwrt/openwrt.git
-REF=openwrt-25.12
-TARGET=x86
-SUBTARGET=64
-DEVICE=generic
+docker.io/demonccc/openwrt-builder:latest
 ```
 
-With no optional acceleration settings, OpenWrt builds its host tools and target toolchain from source, updates all default feeds, then builds the selected target, packages, dependencies, and firmware image.
+The image contains the host-side dependencies required by the supported OpenWrt build modes. Builder code and profiles are not baked into the image; the current repository checkout is mounted into `/workspace` at runtime. This means ordinary code/profile changes reuse the published image, while Dockerfile changes rebuild and republish the environment.
 
-Optional profile settings can reduce clean-build time:
+For source builds without an SDK, the builder can additionally consume OpenWrt's official `ghcr.io/openwrt/tools` images to reuse `build_dir/host` and `staging_dir/host`. Those images are an acceleration layer only: they do not replace `demonccc/openwrt-builder`. Compatibility is resolved automatically from the OpenWrt release/branch, with conservative fallback to source-built host tools for incompatible custom forks.
 
-```text
-SDK_URL=...        # reuse SDK host tools + target toolchain
-TOOLCHAIN_URL=...  # reuse only a target toolchain
-FEED_NAMES=...     # update/index only selected feeds
-```
-
-`SDK_URL` and `TOOLCHAIN_URL` are mutually exclusive because an OpenWrt SDK already contains its target toolchain. `FEED_NAMES` is independent and may be used with either acceleration mode or by itself.
-
-Removing `SDK_URL`, `TOOLCHAIN_URL`, and `FEED_NAMES` always returns to the normal full source-build behavior. This is useful for self-hosted runners where the user wants OpenWrt to build the complete build environment itself.
-
-"Full source build" does **not** mean compiling every package published in every OpenWrt feed. OpenWrt still compiles only the selected firmware packages plus the build/runtime dependencies required by the resolved configuration.
-
-## Included profiles
-
-| Profile | Method | Target | Purpose |
-| --- | --- | --- | --- |
-| [`snapshot-full-source`](profiles/snapshot-full-source/README.md) | Full source | x86/64 generic | Explicit current snapshot build with host tools, toolchain, and target built from source |
-| [`openwrt-25.12-full-source`](profiles/openwrt-25.12-full-source/README.md) | Full source | x86/64 generic | Explicit OpenWrt 25.12 build with host tools, toolchain, and target built from source |
-| [`snapshot-source`](profiles/snapshot-source/README.md) | Source | x86/64 generic | Current OpenWrt snapshot source-build base |
-| [`snapshot-imagebuilder`](profiles/snapshot-imagebuilder/README.md) | ImageBuilder | x86/64 generic | Current OpenWrt snapshot assembled with the official ImageBuilder |
-| [`openwrt-25.12-source`](profiles/openwrt-25.12-source/README.md) | Source | x86/64 generic | Stable OpenWrt 25.12 source-build base |
-| [`openwrt-25.12-imagebuilder`](profiles/openwrt-25.12-imagebuilder/README.md) | ImageBuilder | x86/64 generic | Stable OpenWrt 25.12 assembled with the official ImageBuilder |
-| [`openwrt-24.10-source`](profiles/openwrt-24.10-source/README.md) | Source | x86/64 generic | OpenWrt 24.10 built from source |
-| [`archer-a9-v6`](profiles/archer-a9-v6/README.md) | Source + SDK | TP-Link Archer A9 v6 | Custom QCN5502 source build reusing official SDK host tools/toolchain and selected feeds |
-| [`velop-whw03-v2-imagebuilder`](profiles/velop-whw03-v2-imagebuilder/README.md) | ImageBuilder | Linksys Velop WHW03 V2 | Device-specific package selection using the official OpenWrt ImageBuilder |
-
-The two `*-full-source` profiles are intentionally explicit reference examples showing how to opt out of all build acceleration. The bundled profiles are starting points; a fork can delete any profiles it does not use.
+See [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md) for local execution, Docker Hub publication, OpenWrt prebuilt host tools, and GitHub Actions usage.
 
 ## Documentation
 
-The canonical documentation for how the builder works lives under [`docs/`](docs/):
-
-- [Using OpenWrt Builder](docs/usage.md) — forking the repository, creating builds, GitHub Actions, runners, local builds, and validation.
-- [Profile reference](docs/profiles.md) — profile structure, source and ImageBuilder methods, optional SDK/toolchain/feed acceleration, package selection, feeds, Git packages, and embedded files/configuration.
-
-Keeping operational documentation under `docs/` means a fork can replace or customize this root README without losing the builder reference documentation.
+- [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md)
+- [Profile reference and build modes](https://github.com/demonccc/openwrt-builder/blob/main/docs/profiles.md)
 
 ## License
 

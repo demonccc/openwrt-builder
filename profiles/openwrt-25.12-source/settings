@@ -1,11 +1,10 @@
-# OpenWrt source and device settings.
-#
-# METHOD=source builds OpenWrt directly from its Git source tree.
-# REF can be a branch, tag, or commit.
-
+# Mode 3: selective source with an explicit SDK override.
 METHOD=source
+BUILD_MODE=selective-source
 REPOSITORY=https://github.com/openwrt/openwrt.git
-REF=openwrt-25.12
+REF=v25.12.5
 TARGET=x86
 SUBTARGET=64
 DEVICE=generic
+SDK_URL=https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-sdk-25.12.5-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+FEED_NAMES=packages luci routing

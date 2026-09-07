@@ -1,20 +1,12 @@
-# OpenWrt source and device settings.
-#
-# METHOD=source builds OpenWrt directly from a Git repository.
-# This is required when the source tree contains custom patches or device support.
-#
-# REF can be a branch, tag, or commit.
-# SDK_URL is optional. When set, the builder reuses the SDK host tools and target
-# toolchain while still compiling the target, patched kernel, packages, and image.
-# FEED_NAMES is optional. When set, only those default OpenWrt feeds are updated
-# and indexed instead of every feed from feeds.conf.default.
-# Blank lines and comments starting with # are ignored.
-
+# Mode 2: release-patched.
+# SDK=auto resolves the official SDK from BASE_REF + target/subtarget.
 METHOD=source
+BUILD_MODE=release-patched
 REPOSITORY=https://github.com/demonccc/openwrt.git
 REF=openwrt-25.12-archerA9v6
+BASE_REF=v25.12.5
 TARGET=ath79
 SUBTARGET=generic
 DEVICE=tplink_archer-a9-v6
-SDK_URL=https://downloads.openwrt.org/releases/25.12.5/targets/ath79/generic/openwrt-sdk-25.12.5-ath79-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+SDK=auto
 FEED_NAMES=packages luci routing

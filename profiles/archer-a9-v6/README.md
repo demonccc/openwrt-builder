@@ -1,21 +1,19 @@
-# TP-Link Archer A9 v6
+# TP-Link Archer A9 v6 — release-patched
 
-Builds OpenWrt 25.12 for the TP-Link Archer A9 v6 from a custom OpenWrt fork containing the QCN5502 ath9k support required by the router's 2.4 GHz radio.
+This profile uses mode 2, `release-patched`.
 
-- Method: `source`
-- Target: `ath79/generic`
-- Device: `tplink_archer-a9-v6`
-- Repository: `https://github.com/demonccc/openwrt.git`
-- Ref: `openwrt-25.12-archerA9v6`
-- SDK: official OpenWrt 25.12.5 `ath79/generic` SDK
-- Indexed feeds: `packages`, `luci`, `routing`
+The router needs custom QCN5502 support in ath9k for its integrated 2.4 GHz radio, so the official ImageBuilder alone is insufficient. Recompiling every normal userspace package would also waste time.
 
-The custom source repository is the profile-specific requirement. The SDK provides the prebuilt OpenWrt host tools and target toolchain, so clean builds do not rebuild tools such as CMake, Ninja, Autoconf, squashfs utilities, GCC, binutils, musl, or the toolchain headers.
+The profile builds the custom `openwrt-25.12-archerA9v6` ref, declares `BASE_REF=v25.12.5`, uses `SDK=auto`, and rebuilds the target/kernel plus `package/kernel/mac80211/compile`. The final custom ImageBuilder is pinned to the repository configuration from the official 25.12.5 ImageBuilder, so unchanged packages come from that base release.
 
-The patched target, kernel, wireless stack, selected packages, package dependencies, and final firmware image are still built from the configured source tree.
+`source-build-targets` contains `package/kernel/mac80211/compile` because the QCN5502 patch changes ath9k through OpenWrt's mac80211 package.
 
-Only the default feeds needed by this profile are updated and indexed. The selected packages still resolve their normal transitive dependencies from those feeds and the OpenWrt core tree.
+With `SDK=auto`, the SDK is resolved from `BASE_REF`. Using `SDK=none` would keep the same `release-patched` package scope while rebuilding host tools and the target toolchain locally.
 
-`SDK_URL` is optional at the builder level. Removing it makes this profile fall back to a normal full source build. `FEED_NAMES` is also optional; removing it makes OpenWrt update and index all default feeds.
+## Current Archer source ref
 
-See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.
+The current `openwrt-25.12-archerA9v6` branch is an ancestor-compatible descendant of `v25.12.5`, but it also contains OpenWrt 25.12 commits added after that release. Therefore it is not yet a strict `v25.12.5 + QCN5502 only` source tree.
+
+The builder validates ancestry and pins unchanged package repositories to `v25.12.5`, but ancestry alone cannot guarantee ABI compatibility for unrelated commits. Before treating this profile as a production-safe `release-patched` build, the QCN5502/device changes should be ported onto a ref based directly on `v25.12.5` with no unrelated source changes.
+
+See [Profile reference](../../docs/profiles.md).

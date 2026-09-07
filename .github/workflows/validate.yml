@@ -10,16 +10,37 @@ on:
 permissions:
   contents: read
 
+env:
+  BUILDER_IMAGE: docker.io/demonccc/openwrt-builder:latest
+
 jobs:
   validate:
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Python syntax
+      - name: Validate builder Python
         run: python3 -m py_compile scripts/build.py
 
+      - name: Resolve builder image
+        id: builder
+        run: |
+          if docker pull "$BUILDER_IMAGE"; then
+            echo "image=$BUILDER_IMAGE" >> "$GITHUB_OUTPUT"
+          else
+            echo "Published builder image unavailable; building Dockerfile locally as fallback."
+            docker build -t openwrt-builder:local .
+            echo "image=openwrt-builder:local" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Validate profiles
-        run: python3 scripts/build.py validate
+        env:
+          IMAGE: ${{ steps.builder.outputs.image }}
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            "$IMAGE" \
+            python3 scripts/build.py validate

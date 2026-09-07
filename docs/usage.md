@@ -1,96 +1,209 @@
 # Using OpenWrt Builder
 
-This guide explains how to use the repository. For the profile file format and build-method details, see [Profile reference](profiles.md).
+This guide covers execution. See the canonical [Profile reference](https://github.com/demonccc/openwrt-builder/blob/main/docs/profiles.md) for build-mode and profile semantics.
 
-## Fork the repository
+## Docker architecture
 
-Fork `demonccc/openwrt-builder` to your own GitHub account or organization.
+The project uses two separate Docker/OCI layers with different responsibilities:
 
-The fork contains the build workflows, the builder script, and a set of reusable profiles. The included profiles are examples and starting points; they are not required configuration.
+- `docker.io/demonccc/openwrt-builder:latest` is the main build environment. It contains Ubuntu and the host-side packages required to run OpenWrt builds.
+- `ghcr.io/openwrt/tools:*` is an optional OpenWrt upstream acceleration artifact containing OpenWrt's precompiled host tools.
 
-You can delete any profiles you do not plan to use and keep only the profiles relevant to your builds.
+Firmware builds always execute inside `docker.io/demonccc/openwrt-builder:latest`. The OpenWrt tools image is never used as the main build container.
 
-## Create or customize a profile
+The builder image intentionally does not contain:
 
-Choose the included profile that is closest to the OpenWrt version and build method you need, then copy the complete directory.
+- the `openwrt-builder` repository;
+- OpenWrt source;
+- a fixed OpenWrt SDK;
+- a fixed OpenWrt ImageBuilder;
+- profiles.
 
-For example, to create a source build based on OpenWrt 25.12:
+The current repository checkout is mounted into `/workspace`, so the checked-out `scripts/`, `profiles/`, and documentation are always the source of truth.
+
+The image intentionally has no `ENTRYPOINT`. The caller explicitly runs `python3 scripts/build.py ...` from the mounted checkout.
+
+## Recommended local execution: published Docker image
+
+Pull the canonical image:
 
 ```bash
-cp -r profiles/openwrt-25.12-source profiles/my-router
+docker pull docker.io/demonccc/openwrt-builder:latest
 ```
 
-For an ImageBuilder-based profile:
+Validate profiles:
 
 ```bash
-cp -r profiles/openwrt-25.12-imagebuilder profiles/my-router
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  docker.io/demonccc/openwrt-builder:latest \
+  python3 scripts/build.py validate
 ```
 
-Edit the copied profile according to the [profile reference](profiles.md).
+Build a profile:
 
-A source profile can point to the official OpenWrt repository or to any compatible custom OpenWrt fork. The `archer-a9-v6` profile is an example: it builds from `demonccc/openwrt` because that fork contains the QCN5502 support required by that device.
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  docker.io/demonccc/openwrt-builder:latest \
+  python3 scripts/build.py build \
+  --profile archer-a9-v6 \
+  --output artifact \
+  --jobs "$(nproc)"
+```
 
-An ImageBuilder profile points to an official or otherwise compatible OpenWrt ImageBuilder archive and assembles firmware from packages already built for that target.
+The bind mount keeps `.work/` and `artifact/` in the local checkout. OpenWrt must not build as root; the image has a non-root default user and the examples map the container process to the current host UID/GID.
 
-## Build with GitHub Actions
+## Building the builder image locally
 
-Open **Actions** in your fork and run **Build OpenWrt firmware**.
+The canonical environment definition is the repository [Dockerfile](https://github.com/demonccc/openwrt-builder/blob/main/Dockerfile).
 
-The workflow has a single input:
+Build it locally from the repository root:
 
-- `profile`: directory name under `profiles/`.
+```bash
+docker build \
+  --platform linux/amd64 \
+  -t openwrt-builder:local \
+  .
+```
 
-The selected profile is the complete build recipe. Source repository, source ref, target, device, package selection, feeds, optional external toolchain, and other build behavior come from the profile itself.
+The project currently publishes only `linux/amd64`, matching the GitHub Actions Ubuntu runner used by the build workflows.
 
-The workflow runs on GitHub-hosted Ubuntu 24.04 runners.
+Validate the local image with the current checkout:
 
-Every successful workflow run:
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  openwrt-builder:local \
+  python3 scripts/build.py validate
+```
 
-1. uploads the generated firmware as a GitHub Actions artifact;
-2. creates a GitHub Release containing the generated firmware files.
+Build firmware with the local image:
 
-Release creation is the default behavior for all profiles so users can find firmware from the repository Releases page without browsing individual workflow runs.
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  openwrt-builder:local \
+  python3 scripts/build.py build \
+  --profile archer-a9-v6 \
+  --output artifact \
+  --jobs "$(nproc)"
+```
 
-For source builds the workflow frees additional disk space and installs the OpenWrt source-build dependencies before compiling.
+Rebuilding the Docker image is only necessary when the build environment changes, normally when the Dockerfile changes. Changes to `scripts/`, `profiles/`, or documentation do not require rebuilding the image because those files are mounted from the current checkout.
 
-For ImageBuilder builds it skips the source-build disk cleanup and toolchain dependency installation because ImageBuilder assembles firmware from already-built packages.
+## OpenWrt prebuilt host tools
 
-## Build locally
+The builder image contains the operating-system prerequisites required to build OpenWrt. OpenWrt itself normally builds another layer of host tools under `build_dir/host` and `staging_dir/host`.
 
-The same builder can be used outside GitHub Actions when the required tools are installed.
+When a source build does not use an SDK, the builder automatically tries to reuse OpenWrt's official prebuilt host-tools OCI image from `ghcr.io/openwrt/tools` instead of rebuilding that layer.
 
-Validate all profiles:
+Stable release tags and branches are mapped to the same family used by OpenWrt upstream:
+
+```text
+v25.12.1       -> ghcr.io/openwrt/tools:openwrt-25.12
+v25.12.5       -> ghcr.io/openwrt/tools:openwrt-25.12
+openwrt-25.12  -> ghcr.io/openwrt/tools:openwrt-25.12
+main           -> ghcr.io/openwrt/tools:latest
+```
+
+The image is consumed as an OCI artifact; it does not replace `docker.io/demonccc/openwrt-builder:latest`. `skopeo` pulls it from GHCR and `umoci` extracts `/prebuilt_tools` without requiring the host Docker socket. The builder then links the official `build_dir/host` and `staging_dir/host` trees into the OpenWrt checkout and runs OpenWrt's own `scripts/ext-tools.sh --refresh` mechanism.
+
+The rules are deliberately conservative:
+
+- If an SDK is in use, host tools come from the SDK and no separate tools image is downloaded.
+- Official OpenWrt stable refs use their `openwrt-X.Y` tools family.
+- Official OpenWrt `main` uses `ghcr.io/openwrt/tools:latest`.
+- `release-patched` forks compare the custom source against `BASE_REF`. If host-tools inputs such as `tools/`, `toolchain/`, `include/cmake.mk`, or the external-tools/stamp mechanism changed, official prebuilt tools are not reused.
+- Custom repositories without a `BASE_REF` do not assume compatibility and build host tools from source.
+- If the official tools image cannot be pulled or unpacked, the optimization is skipped and OpenWrt builds the tools normally.
+
+`BUILD_INFO` records `HOST_TOOLS_MODE`, `HOST_TOOLS_IMAGE`, and `HOST_TOOLS_REASON` so every build shows whether its host tools came from the SDK, the official prebuilt image, or source.
+
+## Builder image publication from GitHub Actions
+
+The canonical [Build builder image workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/docker-image.yml) builds and publishes the Docker environment.
+
+Its behavior is:
+
+- On a pull request that changes `Dockerfile` or `.github/workflows/docker-image.yml`, the image is built and validated but is not pushed.
+- On a push to `main` that changes either of those files, the image is built and pushed to Docker Hub.
+- `workflow_dispatch` can also be used to run the workflow manually. Outside a pull request, the workflow publishes the resulting image and therefore requires the Docker Hub secret.
+
+Published tags are:
+
+- `docker.io/demonccc/openwrt-builder:latest`
+- `docker.io/demonccc/openwrt-builder:sha-<commit>`
+
+The Docker Hub username and namespace are intentionally fixed to `demonccc`; no username secret or repository variable is required.
+
+The workflow uses Docker Buildx and GitHub Actions layer caching for the Docker image itself. This cache is independent from OpenWrt firmware build caching.
+
+## Configuring the Docker Hub secret
+
+Docker Hub publication requires one GitHub Actions repository secret:
+
+```text
+DOCKERHUB_TOKEN
+```
+
+Create a Docker Hub access token with permission to push to `demonccc/openwrt-builder`. Use an access token rather than the Docker Hub account password.
+
+Then add it to the GitHub repository:
+
+1. Open `demonccc/openwrt-builder` on GitHub.
+2. Open **Settings**.
+3. Open **Secrets and variables** -> **Actions**.
+4. Select **New repository secret**.
+5. Set the name to `DOCKERHUB_TOKEN`.
+6. Paste the Docker Hub access token as the value and save it.
+
+No `DOCKERHUB_USERNAME` secret is required. The workflow already uses `demonccc` as the Docker Hub username.
+
+The secret is used only for Docker Hub login on publishing runs. Pull-request Docker builds do not log in and do not require the secret.
+
+## GitHub Actions firmware builds
+
+Run **Build OpenWrt firmware** and choose a profile directory. The canonical [firmware build workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/build.yml) pulls `docker.io/demonccc/openwrt-builder:latest` and executes the current checkout inside it.
+
+The effective command inside the container is equivalent to:
+
+```bash
+python3 scripts/build.py build \
+  --profile "$PROFILE" \
+  --output artifact \
+  --jobs "$(nproc)"
+```
+
+If the published image is temporarily unavailable, the workflow falls back to building the repository Dockerfile locally instead of failing only because Docker Hub cannot be reached.
+
+Successful builds upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
+
+## Validation workflow
+
+The canonical [profile validation workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/validate.yml) uses the same published builder image. It validates the Python builder and the profiles, and retains the local Dockerfile fallback until the published image is available.
+
+## Direct Python execution
+
+Direct Python execution remains supported when the host already has all required build dependencies. To get the same automatic prebuilt-host-tools optimization outside Docker, the host also needs `skopeo` and `umoci`.
 
 ```bash
 python3 scripts/build.py validate
+python3 scripts/build.py build --profile openwrt-25.12-source
 ```
 
-Validate one profile:
+Docker is the recommended portable path because it keeps the build environment consistent with GitHub Actions.
 
-```bash
-python3 scripts/build.py validate --profile archer-a9-v6
-```
+## Source override
 
-Build a source profile:
+`--source-ref` can temporarily override `REF`. When a profile uses explicit `SDK_URL`, the caller remains responsible for compatibility between that SDK and the overridden source.
 
-```bash
-python3 scripts/build.py build --profile archer-a9-v6
-```
-
-Build an ImageBuilder profile:
-
-```bash
-python3 scripts/build.py build --profile velop-whw03-v2-imagebuilder
-```
-
-The generated files are copied to `artifact/` by default. The output also contains `BUILD_INFO`, which records the selected profile, build method, source or ImageBuilder reference, and explicit package selections.
-
-## Embedded files and configuration
-
-Profiles can optionally contain a `files/` directory to embed files directly into the generated firmware, including OpenWrt configuration or first-boot scripts.
-
-This works with both source and ImageBuilder profiles. See [Embedded files and configuration](profiles.md#embedded-files-and-configuration) in the profile reference for the exact behavior and recommended use of `/etc/uci-defaults/`.
-
-## Validation in GitHub Actions
-
-The `Validate profiles` workflow checks Python syntax and validates all profiles on `main`, feature branches matching `feat/**`, and pull requests.
+See the canonical [`openwrt-25.12-source` settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/settings) for an explicit `SDK_URL` example.

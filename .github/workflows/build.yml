@@ -98,6 +98,7 @@ jobs:
           retention-days: 14
 
       - name: Upload firmware artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-${{ inputs.profile }}-${{ github.run_number }}
@@ -106,6 +107,7 @@ jobs:
           retention-days: 14
 
       - name: Create GitHub Release
+        if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           PROFILE: ${{ inputs.profile }}

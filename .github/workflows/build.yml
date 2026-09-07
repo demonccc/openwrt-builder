@@ -22,11 +22,6 @@ on:
           - normal
           - verbose
           - debug
-      log_file:
-        description: Build log path inside the repository checkout
-        required: true
-        default: logs/build.log
-        type: string
 
 permissions:
   contents: write
@@ -74,7 +69,6 @@ jobs:
           PROFILE: ${{ inputs.profile }}
           IMAGE: ${{ steps.builder.outputs.image }}
           VERBOSITY: ${{ inputs.verbosity }}
-          LOG_FILE: ${{ inputs.log_file }}
         run: |
           docker run --rm \
             --user "$(id -u):$(id -g)" \
@@ -85,17 +79,7 @@ jobs:
             --profile "$PROFILE" \
             --output artifact \
             --jobs "$(nproc)" \
-            --verbosity "$VERBOSITY" \
-            --log-file "$LOG_FILE"
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: openwrt-${{ inputs.profile }}-${{ github.run_number }}-build-log
-          path: ${{ inputs.log_file }}
-          if-no-files-found: warn
-          retention-days: 14
+            --verbosity "$VERBOSITY"
 
       - name: Upload firmware artifact
         if: success()

@@ -1,0 +1,4 @@
+# OpenWrt make targets whose source is affected by this profile's patch set.
+# target/linux/compile is always built automatically by release-patched mode.
+# The QCN5502 patch series lives under package/kernel/mac80211/patches/ath9k.
+package/kernel/mac80211/compile

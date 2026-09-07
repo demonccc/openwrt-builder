@@ -1,0 +1,4 @@
+# Mode 1: official prebuilt ImageBuilder. No source compilation.
+METHOD=imagebuilder
+IMAGEBUILDER_URL=https://downloads.openwrt.org/releases/24.10.5/targets/x86/64/openwrt-imagebuilder-24.10.5-x86-64.Linux-x86_64.tar.zst
+DEVICE=generic

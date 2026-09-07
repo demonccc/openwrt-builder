@@ -1,6 +1,6 @@
 # OpenWrt Builder
 
-Reusable OpenWrt firmware builder powered by GitHub Actions.
+Reusable OpenWrt firmware builder powered by Docker and GitHub Actions.
 
 This root README is intentionally an index. The canonical explanation of how builds work lives under [`docs/`](https://github.com/demonccc/openwrt-builder/tree/main/docs), while each profile README explains only why that profile exists and its profile-specific choices.
 
@@ -11,7 +11,7 @@ This root README is intentionally an index. The canonical explanation of how bui
 | **1. ImageBuilder** | Nothing from source; assembles firmware from prebuilt OpenWrt artifacts |
 | **2. `release-patched`** | Only target/kernel/package components affected by a patch; unchanged packages come from the exact base release |
 | **3. `selective-source`** | Only packages selected for the firmware plus their dependencies |
-| **4. `full-source`** | The broad package universe from source, optionally limited to selected feeds |
+| **4. `full-source`** | The broad package universe from source, optionally limited by selected feeds |
 
 `SDK` is independent from the build mode. It controls build acceleration, not package scope. See the canonical [Profile reference](https://github.com/demonccc/openwrt-builder/blob/main/docs/profiles.md).
 
@@ -27,23 +27,26 @@ Only these profiles are kept intentionally:
 | [`openwrt-25.12-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/README.md) | `selective-source` | Selective source build on OpenWrt 25.12.5 |
 | [`snapshot-full-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/snapshot-full-source/README.md) | `full-source` | Full source build from current OpenWrt main |
 
-## Builder image
+## Docker execution
 
-The canonical OpenWrt build environment is published as:
+OpenWrt Builder always runs inside Docker, locally and in GitHub Actions. Docker is the portable execution boundary so Windows, macOS, Linux, and CI use the same Linux build environment and the same `scripts/build.py` implementation.
+
+The canonical image is:
 
 ```text
 docker.io/demonccc/openwrt-builder:latest
 ```
 
-The image contains the host-side dependencies required by the supported OpenWrt build modes. Builder code and profiles are not baked into the image; the current repository checkout is mounted into `/workspace` at runtime. This means ordinary code/profile changes reuse the published image, while Dockerfile changes rebuild and republish the environment.
+The repository checkout is mounted into `/workspace`; builder code and profiles are not baked into the image.
 
-For source builds without an SDK, the builder can additionally consume OpenWrt's official `ghcr.io/openwrt/tools` images to reuse `build_dir/host` and `staging_dir/host`. Those images are an acceleration layer only: they do not replace `demonccc/openwrt-builder`. Compatibility is resolved automatically from the OpenWrt release/branch, with conservative fallback to source-built host tools for incompatible custom forks.
+For commands, see [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md).
 
-See [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md) for local execution, Docker Hub publication, OpenWrt prebuilt host tools, and GitHub Actions usage.
+For image architecture, local Docker image builds, OpenWrt prebuilt host tools, Docker Hub publishing, and `DOCKERHUB_TOKEN` configuration, see [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md).
 
 ## Documentation
 
 - [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md)
+- [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md)
 - [Profile reference and build modes](https://github.com/demonccc/openwrt-builder/blob/main/docs/profiles.md)
 
 ## License

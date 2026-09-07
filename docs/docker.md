@@ -72,6 +72,8 @@ These utilities allow `scripts/build.py` to consume OpenWrt's official prebuilt 
 
 OpenWrt source, SDKs and ImageBuilders remain runtime inputs because their version depends on the selected profile.
 
+A local `--cache-dir` is also runtime state. It lives in the mounted checkout and is never baked into the builder image; see the usage documentation for details.
+
 ## Building the builder image locally
 
 From the repository root:
@@ -107,7 +109,7 @@ build_dir/host
 staging_dir/host
 ```
 
-When raw OpenWrt host tools are needed, `scripts/build.py` automatically tries to reuse OpenWrt's official prebuilt host-tools image:
+When a source build is not already using an SDK, `scripts/build.py` can reuse OpenWrt's official prebuilt host-tools image:
 
 ```text
 ghcr.io/openwrt/tools:<family>
@@ -132,13 +134,14 @@ The OpenWrt tools image is an acceleration artifact only. It never replaces the 
 
 The builder is conservative about reuse:
 
-- `selective-source` and `full-source` builds that use an SDK reuse the SDK host tools and do not download a separate tools image.
-- `release-patched` intentionally does **not** reuse host tools from the SDK. Official SDK archives already bundle and relocate their host binaries, while the generated ImageBuilder runs OpenWrt's bundling step again. Reusing SDK host tools there would double-bundle wrappers such as `openssl` and `sed`. The SDK therefore accelerates only the target toolchain in this mode; host tools come from an applicable official prebuilt-tools image or are built from source.
-- Official stable OpenWrt refs use their `openwrt-X.Y` tools family.
-- Official OpenWrt `main` uses `ghcr.io/openwrt/tools:latest`.
-- `release-patched` forks compare the custom source against `BASE_REF`. If host-tools inputs such as `tools/`, `toolchain/`, `include/cmake.mk`, or the external-tools/stamp mechanism changed, official prebuilt tools are not reused.
+- Source builds using an SDK reuse that SDK's host tools and target toolchain together. This keeps those two parts of the SDK as one coherent build environment.
+- Official stable OpenWrt refs without an SDK use their `openwrt-X.Y` tools family when available.
+- Official OpenWrt `main` without an SDK uses `ghcr.io/openwrt/tools:latest`.
+- `release-patched` forks without an SDK compare the custom source against `BASE_REF`. If host-tools inputs such as `tools/`, `toolchain/`, `include/cmake.mk`, or the external-tools/stamp mechanism changed, official prebuilt tools are not reused.
 - Custom repositories without a `BASE_REF` do not assume compatibility and build host tools from source.
 - If the official tools image cannot be pulled or unpacked, the optimization is skipped and OpenWrt builds the host tools normally.
+
+`release-patched` has one additional ImageBuilder rule. The source compilation uses the SDK host tools and toolchain together when an SDK is selected. The generated custom ImageBuilder is then combined with the **host-tool tree from the official ImageBuilder matching `BASE_REF`** before it is executed. This avoids reusing the generated ImageBuilder's twice-bundled SDK wrappers while also avoiding a mixed SDK-toolchain / moving-branch-host-tools source build.
 
 `BUILD_INFO` records:
 
@@ -148,7 +151,7 @@ HOST_TOOLS_IMAGE
 HOST_TOOLS_REASON
 ```
 
-so every source build shows whether host tools came from the SDK, the official prebuilt image, or source. For `release-patched`, `HOST_TOOLS_MODE` is intentionally `official-prebuilt` or `source`; `SDK_MODE` separately records target-toolchain acceleration.
+so every source build shows whether its source-build host tools came from the SDK, the official prebuilt image, or source.
 
 ## Builder image consumption
 

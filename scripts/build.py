@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import shlex
@@ -42,6 +43,7 @@ HOST_TOOLS_COMPAT_PATHS = (
     "scripts/timestamp.pl",
 )
 MAKE_VERBOSITY = None
+CACHE_DIR = None
 
 
 class BuilderError(RuntimeError):
@@ -314,14 +316,36 @@ def install_git_packages(source_dir, entries):
             shutil.copytree(source, root / name, ignore=shutil.ignore_patterns(".git"))
 
 
+def cache_archive_path(url):
+    if not CACHE_DIR:
+        return None
+    basename = Path(urlparse(url).path).name or "download.tar.zst"
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:20]
+    return CACHE_DIR / "archives" / digest / basename
+
+
 def download_archive(url, destination, filename, label):
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True)
-    archive = destination / filename
-    print(f"Downloading {label}: {url}", flush=True)
-    with urllib.request.urlopen(url) as response, archive.open("wb") as handle:
-        shutil.copyfileobj(response, handle)
+    cached = cache_archive_path(url)
+    if cached and cached.is_file() and cached.stat().st_size:
+        archive = cached
+        print(f"Cache hit for {label}: {archive}", flush=True)
+    else:
+        archive = cached or (destination / filename)
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        temporary = archive.with_name(archive.name + ".part")
+        temporary.unlink(missing_ok=True)
+        print(f"Downloading {label}: {url}", flush=True)
+        try:
+            with urllib.request.urlopen(url) as response, temporary.open("wb") as handle:
+                shutil.copyfileobj(response, handle)
+            temporary.replace(archive)
+        finally:
+            temporary.unlink(missing_ok=True)
+        if cached:
+            print(f"Cached {label}: {archive}", flush=True)
     extracted = destination / "extract"
     extracted.mkdir()
     run(["tar", "--zstd", "-xf", str(archive), "-C", str(extracted)])
@@ -515,7 +539,9 @@ def build_state(source_dir):
 
 
 def replace_tree(source, destination):
-    if destination.exists():
+    if destination.is_symlink() or destination.is_file():
+        destination.unlink()
+    elif destination.exists():
         shutil.rmtree(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination, symlinks=True)
@@ -550,10 +576,25 @@ def write_config(source_dir, settings, include, exclude, *, full=False, imagebui
     (source_dir / ".config").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def configure_download_cache(source_dir):
+    if not CACHE_DIR:
+        return
+    cache_dl = CACHE_DIR / "dl"
+    cache_dl.mkdir(parents=True, exist_ok=True)
+    source_dl = source_dir / "dl"
+    if source_dl.is_symlink() or source_dl.is_file():
+        source_dl.unlink()
+    elif source_dl.exists():
+        shutil.rmtree(source_dl)
+    source_dl.symlink_to(cache_dl, target_is_directory=True)
+    print(f"OpenWrt download cache: {cache_dl}", flush=True)
+
+
 def prepare_source(profile_name, profile_dir, settings, source_ref, include, *, full):
     ref = source_ref or settings["REF"]
     source_dir = WORK_DIR / profile_name / "openwrt"
     clone_ref(settings["REPOSITORY"], ref, source_dir, preserve_history=settings["BUILD_MODE"] == "release-patched")
+    configure_download_cache(source_dir)
     base_commit = None
     if settings["BUILD_MODE"] == "release-patched":
         base_commit = validate_release_base(source_dir, settings["BASE_REF"])
@@ -669,7 +710,14 @@ def pin_release_repositories(settings, custom_ib, profile_name):
             copied.append(name)
     if not copied:
         raise BuilderError("Could not find repository configuration in the official base ImageBuilder")
-    print(f"Pinned custom ImageBuilder repositories to {settings['BASE_REF']}: {', '.join(copied)}", flush=True)
+    official_host = official_ib / "staging_dir" / "host"
+    if not official_host.is_dir():
+        raise BuilderError("Official base ImageBuilder does not contain staging_dir/host")
+    replace_tree(official_host, custom_ib / "staging_dir" / "host")
+    print(
+        f"Pinned custom ImageBuilder repositories and host tools to {settings['BASE_REF']}: {', '.join(copied)}",
+        flush=True,
+    )
 
 
 def copy_local_apks(source_dir, imagebuilder_dir):
@@ -689,17 +737,14 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     targets = parse_simple_list(profile_dir / "source-build-targets")
     source_dir, ref, feeds, base_commit = prepare_source(profile_name, profile_dir, settings, source_ref, [], full=False)
     sdk, sdk_url, sdk_mode = prepare_sdk(profile_name, settings)
-    # Official SDK archives already bundle/relocate host binaries. A generated
-    # ImageBuilder bundles STAGING_DIR_HOST again, so reusing SDK host tools here
-    # would double-bundle wrappers such as openssl and sed. Keep SDK acceleration
-    # for the target toolchain only and use raw official prebuilt host tools (or
-    # source-built host tools as the conservative fallback).
-    tools_image, tools_reason = prepare_prebuilt_tools(profile_name, settings, source_dir, ref, base_commit)
+    tools_image, tools_reason = (None, "sdk-provides-host-tools")
+    if not sdk:
+        tools_image, tools_reason = prepare_prebuilt_tools(profile_name, settings, source_dir, ref, base_commit)
     files = copy_files(profile_dir, source_dir / "files")
     write_config(source_dir, settings, [], [], imagebuilder=True)
     run(["make", "defconfig"], cwd=source_dir)
     if sdk:
-        install_sdk_state(source_dir, sdk, include_host_tools=False)
+        install_sdk_state(source_dir, sdk)
     download_sources(source_dir, jobs, sdk)
     run(["make", "target/linux/compile", f"-j{jobs}"], cwd=source_dir)
     for target in targets:
@@ -715,7 +760,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     if files:
         command.append(f"FILES={(source_dir / 'files').resolve()}")
     run(command, cwd=imagebuilder_dir)
-    host_tools_mode = "official-prebuilt" if tools_image else "source"
+    host_tools_mode = "sdk" if sdk else ("official-prebuilt" if tools_image else "source")
     write_info(output, [f"PROFILE={profile_name}", "METHOD=source", "BUILD_MODE=release-patched", f"REF={ref}", f"BASE_REF={settings['BASE_REF']}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"HOST_TOOLS_MODE={host_tools_mode}", f"HOST_TOOLS_IMAGE={tools_image or 'none'}", f"HOST_TOOLS_REASON={tools_reason}", f"SOURCE_BUILD_TARGETS={' '.join(targets)}", f"LOCAL_APKS={local_apks}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", "UNCHANGED_PACKAGES=official-base-release-repositories"])
 
 
@@ -744,7 +789,7 @@ def build(profile_name, source_ref, output, jobs):
 
 
 def main():
-    global MAKE_VERBOSITY
+    global MAKE_VERBOSITY, CACHE_DIR
 
     parser = argparse.ArgumentParser(description="Build OpenWrt firmware from reusable profiles.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -757,6 +802,7 @@ def main():
     build_cmd.add_argument("--jobs", type=int, default=max(os.cpu_count() or 1, 1))
     build_cmd.add_argument("--verbosity", choices=VERBOSITY_MAP, default="normal")
     build_cmd.add_argument("--log-file")
+    build_cmd.add_argument("--cache-dir")
     args = parser.parse_args()
 
     try:
@@ -776,6 +822,10 @@ def main():
                     raise BuilderError("--log-file must be outside --output because the output directory is recreated")
                 if os.environ.get(LOG_CHILD_ENV) != "1":
                     return run_with_log(args.log_file)
+            if args.cache_dir:
+                CACHE_DIR = workspace_path(args.cache_dir).resolve()
+                CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                print(f"Persistent local cache: {CACHE_DIR}", flush=True)
             MAKE_VERBOSITY = VERBOSITY_MAP[args.verbosity]
             build(args.profile, args.source_ref, Path(args.output), args.jobs)
     except (BuilderError, subprocess.CalledProcessError, OSError) as exc:

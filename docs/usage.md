@@ -72,7 +72,64 @@ docker run --rm `
   --output artifact
 ```
 
-The checkout mount keeps `.work/`, `artifact/`, and any requested local log files in the repository directory. Linux/macOS examples map the process to the current host UID/GID so generated files are not owned by root. Docker Desktop handles the bind mount on Windows.
+The checkout mount keeps `.work/`, `artifact/`, the optional local cache, and any requested local log files in the repository directory. Linux/macOS examples map the process to the current host UID/GID so generated files are not owned by root. Docker Desktop handles the bind mount on Windows.
+
+## Persistent local download cache
+
+Local builds can opt into a persistent cache with:
+
+```text
+--cache-dir <path>
+```
+
+The cache is disabled by default. When enabled, the builder keeps reusable **downloaded inputs** outside the disposable `.work/` build tree:
+
+- OpenWrt's `dl/` source archive directory;
+- downloaded SDK archives;
+- downloaded ImageBuilder archives, including the official base ImageBuilder used by `release-patched`.
+
+The source checkout, `build_dir/`, target staging state, generated ImageBuilder, and other compilation state are still recreated for each build. This keeps rebuilds reproducible while avoiding repeated large downloads.
+
+OpenWrt validates package/source downloads against the hashes declared by the build metadata. SDK and ImageBuilder cache entries are keyed by their resolved download URL.
+
+Recommended cache location inside the repository checkout:
+
+```text
+.cache/openwrt-builder
+```
+
+It is ignored by Git.
+
+Linux / macOS example:
+
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  demonccc/openwrt-builder:latest \
+  python3 scripts/build.py build \
+  --profile archer-a9-v6 \
+  --output artifact \
+  --cache-dir .cache/openwrt-builder
+```
+
+Windows PowerShell example:
+
+```powershell
+docker run --rm `
+  -e HOME=/tmp `
+  -v "${PWD}:/workspace" `
+  demonccc/openwrt-builder:latest `
+  python3 scripts/build.py build `
+  --profile archer-a9-v6 `
+  --output artifact `
+  --cache-dir .cache/openwrt-builder
+```
+
+The first run populates the cache. Later runs print `Cache hit` for reusable SDK/ImageBuilder archives and use the persistent OpenWrt download directory for package sources.
+
+GitHub Actions does not pass `--cache-dir`; CI builds remain clean and ephemeral by default.
 
 ## Build parameters for diagnostics
 
@@ -108,7 +165,7 @@ The builder does not automatically retry a failed `make`. A line such as `Please
 
 ### Recommended local Archer A9 diagnostic build
 
-For the current Archer A9 failure, use `debug`, save the complete log, and use one make job.
+For Archer A9 troubleshooting, use `debug`, save the complete log, use one make job, and keep the download cache enabled so repeated diagnostic runs do not download the same large inputs again.
 
 Linux / macOS:
 
@@ -121,6 +178,7 @@ docker run --rm \
   python3 scripts/build.py build \
   --profile archer-a9-v6 \
   --output artifact \
+  --cache-dir .cache/openwrt-builder \
   --jobs 1 \
   --verbosity debug \
   --log-file logs/archer-a9-v6.log
@@ -136,15 +194,17 @@ docker run --rm `
   python3 scripts/build.py build `
   --profile archer-a9-v6 `
   --output artifact `
+  --cache-dir .cache/openwrt-builder `
   --jobs 1 `
   --verbosity debug `
   --log-file logs/archer-a9-v6.log
 ```
 
-After a failure, the host checkout contains both:
+After a failure, the host checkout contains:
 
 ```text
 logs/archer-a9-v6.log
+.cache/openwrt-builder/
 .work/archer-a9-v6/openwrt/
 ```
 
@@ -191,7 +251,7 @@ A fork or custom environment can override it with any compatible image, for exam
 mydockeruser/openwrt-builder:latest
 ```
 
-`verbosity` uses the same `normal`, `verbose`, and `debug` values as local Docker execution. GitHub Actions does not use `--log-file`, because the workflow already retains the complete job log.
+`verbosity` uses the same `normal`, `verbose`, and `debug` values as local Docker execution. GitHub Actions does not use `--log-file`, because the workflow already retains the complete job log. It also does not use `--cache-dir`; local download reuse is opt-in and CI remains ephemeral by default.
 
 The workflow passes verbosity directly to `scripts/build.py`:
 

@@ -35,7 +35,7 @@ The canonical OpenWrt build environment is published as:
 docker.io/demonccc/openwrt-builder:latest
 ```
 
-The image contains the host-side dependencies required by the supported OpenWrt build modes. Builder code and profiles are not baked into the image; the current repository checkout is mounted into `/workspace` at runtime.
+The image contains the host-side dependencies required by the supported OpenWrt build modes. Builder code and profiles are not baked into the image; the current repository checkout is mounted into `/workspace` at runtime. This means ordinary code/profile changes reuse the published image, while Dockerfile changes rebuild and republish the environment.
 
 See [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md) for local execution, Docker Hub publication, and GitHub Actions usage.
 

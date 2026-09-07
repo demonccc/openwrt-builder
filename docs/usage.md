@@ -10,7 +10,7 @@ For Docker image architecture, local image builds, OpenWrt prebuilt host tools, 
 
 Install Docker. On Windows and macOS, Docker Desktop is the simplest supported environment; on Linux, use Docker Engine or Docker Desktop.
 
-Clone the repository and run the commands from its root so the checkout can be mounted at `/workspace`.
+Clone the repository and run the commands from its root so the checkout can be mounted at `/workspace`. The Docker image contains the build environment, while `scripts/` and `profiles/` come from the mounted checkout. Therefore new CLI parameters become available after updating the repository checkout; rebuilding the Docker image is not required for script-only changes.
 
 ## Use the upstream published builder image
 

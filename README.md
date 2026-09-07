@@ -37,14 +37,14 @@ The upstream image is:
 docker.io/demonccc/openwrt-builder:latest
 ```
 
-Docker Hub integration is configured explicitly with:
+Docker Hub integration requires explicit repository configuration:
 
 ```text
 DOCKERHUB_USERNAME  GitHub Actions repository variable
 DOCKERHUB_TOKEN     GitHub Actions repository secret
 ```
 
-For this repository, `DOCKERHUB_USERNAME` is `demonccc`. Forks set those values to their own Docker Hub account or organization. There is intentionally no automatic namespace fallback.
+For this repository, `DOCKERHUB_USERNAME` must be set to `demonccc`. Forks set both values for their own Docker Hub account or organization. There is intentionally no automatic fallback from the GitHub repository owner to a Docker Hub namespace.
 
 The repository checkout is mounted into `/workspace`; builder code and profiles are not baked into the image.
 

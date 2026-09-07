@@ -8,13 +8,14 @@ on:
         required: true
         default: openwrt-25.12-source
         type: string
+      builder_image:
+        description: Docker image used as the OpenWrt build environment
+        required: true
+        default: demonccc/openwrt-builder:latest
+        type: string
 
 permissions:
   contents: write
-
-env:
-  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
-  BUILDER_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME }}/openwrt-builder:latest
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.profile }}
@@ -23,14 +24,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    env:
+      BUILDER_IMAGE: ${{ inputs.builder_image }}
     steps:
-      - name: Validate Docker Hub configuration
-        run: |
-          if [ -z "$DOCKERHUB_USERNAME" ]; then
-            echo "DOCKERHUB_USERNAME repository variable is required." >&2
-            exit 1
-          fi
-
       - name: Checkout builder
         uses: actions/checkout@v4
 

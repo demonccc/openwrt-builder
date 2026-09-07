@@ -7,10 +7,8 @@ This is intentional: Docker is the portable execution boundary of the project. W
 The upstream project publishes its canonical build environment as:
 
 ```text
-docker.io/demonccc/openwrt-builder:latest
+demonccc/openwrt-builder:latest
 ```
-
-Forks can publish and consume the same image under their own Docker Hub namespace without modifying the workflows. See [Docker Hub configuration](#docker-hub-configuration).
 
 For day-to-day commands, see [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md).
 
@@ -46,7 +44,7 @@ Using Docker makes the execution model consistent:
 Windows / macOS / Linux / GitHub Actions
                   |
                   v
-       <namespace>/openwrt-builder
+         openwrt-builder image
                   |
                   v
         scripts/build.py
@@ -126,7 +124,7 @@ openwrt-25.12  -> ghcr.io/openwrt/tools:openwrt-25.12
 main           -> ghcr.io/openwrt/tools:latest
 ```
 
-The OpenWrt tools image is an acceleration artifact only. It never replaces the main `<namespace>/openwrt-builder` container.
+The OpenWrt tools image is an acceleration artifact only. It never replaces the main `openwrt-builder` container.
 
 `scripts/build.py` uses `skopeo` to pull the OCI image and `umoci` to unpack `/prebuilt_tools`. It then exposes the official `build_dir/host` and `staging_dir/host` trees to the OpenWrt checkout and invokes OpenWrt's own `scripts/ext-tools.sh --refresh` mechanism.
 
@@ -151,6 +149,22 @@ HOST_TOOLS_REASON
 
 so every source build shows whether host tools came from the SDK, the official prebuilt image, or source.
 
+## Builder image consumption
+
+The firmware workflow exposes an explicit `builder_image` input. The upstream default is:
+
+```text
+demonccc/openwrt-builder:latest
+```
+
+This input is independent from Docker Hub publishing credentials. A fork can keep using the upstream image, or explicitly point a manual build at its own compatible image:
+
+```text
+mydockeruser/openwrt-builder:latest
+```
+
+The validation workflow uses the upstream image by default for push and pull-request validation. Manual validation exposes the same `builder_image` input.
+
 ## Builder image publication
 
 The canonical [Build builder image workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/docker-image.yml) builds and publishes the environment image.
@@ -161,7 +175,7 @@ Its behavior is:
 - Pushes to `main` that change either file build and publish the image to Docker Hub.
 - `workflow_dispatch` can publish the image manually.
 
-The target image is resolved as:
+The publication target is resolved from the explicit Docker Hub username:
 
 ```text
 docker.io/<DOCKERHUB_USERNAME>/openwrt-builder
@@ -174,13 +188,13 @@ docker.io/<DOCKERHUB_USERNAME>/openwrt-builder:latest
 docker.io/<DOCKERHUB_USERNAME>/openwrt-builder:sha-<commit>
 ```
 
-The firmware and validation workflows use the same explicit namespace when pulling `openwrt-builder:latest`, so a fork can use its own published image without editing YAML files.
+`DOCKERHUB_USERNAME` controls only where images are published. It does not implicitly change the builder image used by firmware or validation workflows.
 
 The workflow uses Docker Buildx and GitHub Actions layer caching for the Docker image itself.
 
 ## Docker Hub configuration
 
-Docker Hub integration requires explicit repository configuration:
+Publishing to Docker Hub requires explicit repository configuration:
 
 ```text
 DOCKERHUB_USERNAME  GitHub Actions variable
@@ -188,8 +202,6 @@ DOCKERHUB_TOKEN     GitHub Actions secret
 ```
 
 There is intentionally no automatic fallback from the GitHub repository owner to a Docker Hub username. GitHub and Docker Hub are independent namespaces, and silently assuming they match can target an unrelated Docker Hub account and make failures difficult to diagnose.
-
-All workflows validate `DOCKERHUB_USERNAME` before using the builder image and fail immediately with a clear error when it is missing.
 
 ### Username variable
 
@@ -237,4 +249,4 @@ Name:  DOCKERHUB_TOKEN
 Value: <Docker Hub access token>
 ```
 
-The token is only needed for publishing. Pull-request image validation does not log in to Docker Hub, but the username variable is still required so the target image namespace is unambiguous.
+The token is only needed for publishing. Pull-request image validation does not log in to Docker Hub.

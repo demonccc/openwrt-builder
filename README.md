@@ -2,7 +2,7 @@
 
 Reusable OpenWrt firmware builder powered by GitHub Actions.
 
-This root README is intentionally an index. The canonical explanation of how builds work lives under [`docs/`](docs/), while each profile README explains only why that profile exists and what it demonstrates.
+This root README is intentionally an index. The canonical explanation of how builds work lives under [`docs/`](docs/), while each profile README explains only why that profile exists and its profile-specific choices.
 
 ## Build modes
 
@@ -21,11 +21,11 @@ Only these profiles are kept intentionally:
 
 | Profile | Mode | Example |
 | --- | --- | --- |
-| [`velop-whw03-v2-imagebuilder`](profiles/velop-whw03-v2-imagebuilder/README.md) | ImageBuilder | Real device profile using OpenWrt 25.12 ImageBuilder |
-| [`openwrt-24.10-imagebuilder`](profiles/openwrt-24.10-imagebuilder/README.md) | ImageBuilder | Generic x86/64 ImageBuilder example for OpenWrt 24.10 |
-| [`archer-a9-v6`](profiles/archer-a9-v6/README.md) | `release-patched` | QCN5502/ath9k patch + unchanged 25.12.5 binaries; demonstrates `SDK=auto` |
-| [`openwrt-25.12-source`](profiles/openwrt-25.12-source/README.md) | `selective-source` | Selective source build; demonstrates explicit `SDK_URL` |
-| [`snapshot-full-source`](profiles/snapshot-full-source/README.md) | `full-source` | Full snapshot build; demonstrates `SDK=none` and feed scope |
+| [`velop-whw03-v2-imagebuilder`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/velop-whw03-v2-imagebuilder/README.md) | ImageBuilder | Real device profile using OpenWrt 25.12 ImageBuilder |
+| [`openwrt-24.10-imagebuilder`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-24.10-imagebuilder/README.md) | ImageBuilder | Generic x86/64 ImageBuilder profile for OpenWrt 24.10 |
+| [`archer-a9-v6`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/README.md) | `release-patched` | QCN5502/ath9k patch with unchanged packages from OpenWrt 25.12.5 |
+| [`openwrt-25.12-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/README.md) | `selective-source` | Selective source build for OpenWrt 25.12 |
+| [`snapshot-full-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/snapshot-full-source/README.md) | `full-source` | Full source build from the current OpenWrt snapshot |
 
 ## Documentation
 

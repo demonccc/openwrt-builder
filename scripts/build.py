@@ -27,6 +27,7 @@ BUILD_MODES = ("release-patched", "selective-source", "full-source")
 SDK_MODES = ("auto", "none")
 RELEASE_REF_RE = re.compile(r"^v?(\d+\.\d+\.\d+)$")
 OPENWRT_DOWNLOADS = "https://downloads.openwrt.org/releases"
+OPENWRT_GIT = "https://github.com/openwrt/openwrt.git"
 
 
 class BuilderError(RuntimeError):
@@ -205,11 +206,11 @@ def clone_ref(repository, ref, destination, *, preserve_history=False):
 
 
 def validate_release_base(source_dir, base_ref):
-    run(["git", "fetch", "--filter=blob:none", "origin", base_ref], cwd=source_dir)
+    run(["git", "fetch", "--filter=blob:none", OPENWRT_GIT, base_ref], cwd=source_dir)
     base_commit = subprocess.check_output(["git", "rev-parse", "FETCH_HEAD"], cwd=source_dir, text=True).strip()
     result = run(["git", "merge-base", "--is-ancestor", base_commit, "HEAD"], cwd=source_dir, check=False)
     if result.returncode:
-        raise BuilderError(f"Custom REF is not based on BASE_REF={base_ref}")
+        raise BuilderError(f"Custom REF is not based on official OpenWrt BASE_REF={base_ref}")
 
 
 def add_feeds(source_dir, feeds):

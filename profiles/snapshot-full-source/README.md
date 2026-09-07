@@ -1,19 +1,13 @@
-# OpenWrt snapshot full source build
+# OpenWrt snapshot — full-source example
 
-Builds the current OpenWrt snapshot from the official source tree without using any prebuilt SDK or external toolchain acceleration.
+This profile demonstrates **mode 4: full-source** against the current OpenWrt `main` branch.
 
-- Method: `source`
-- Target: `x86/64`
-- Device: `generic`
-- Ref: `main`
-- Host tools: built from source
-- Target toolchain: built from source
-- Feed indexing: all default feeds
+Use this mode when the goal is to build a distribution/package set from source rather than only one firmware's dependency graph. The builder enables OpenWrt's `CONFIG_ALL`, `CONFIG_ALL_KMODS`, and `CONFIG_ALL_NONSHARED` selections after installing the configured feeds.
 
-This profile intentionally omits `SDK_URL`, `TOOLCHAIN_URL`, and `FEED_NAMES`.
+By default this example leaves `FEED_NAMES` unset, so all default feeds are prepared and their available packages participate in the full build. A copied profile may set, for example, `FEED_NAMES=packages luci routing` to make a full build of only those feeds plus the OpenWrt core tree.
 
-"Full source build" means OpenWrt builds its own host tools and target toolchain, then builds the selected target, firmware packages, and their dependencies. It does **not** mean compiling every package available in every feed.
+This profile intentionally does not use an SDK or external toolchain. It is the slowest and most complete example: host tools, target toolchain, kernel, target, and the selected full package universe are built from source.
 
-Use this profile when validating current OpenWrt snapshot behavior from a completely clean source build, especially on a self-hosted runner intended to build everything itself.
+For normal firmware creation, prefer ImageBuilder, release-patched, or selective-source. Full-source exists for cases where producing or validating a broad package repository is actually required.
 
-See the [profile reference](../../docs/profiles.md) for source-build behavior and profile file semantics.
+See the [profile reference](../../docs/profiles.md) for feed semantics and the four build modes.

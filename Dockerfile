@@ -10,6 +10,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 #
 # Keep all host prerequisites and common build utilities here so firmware jobs
 # can start the OpenWrt build immediately without installing system packages.
+# skopeo + umoci let the builder consume OpenWrt's official prebuilt host-tools
+# OCI images directly, without requiring access to the host Docker daemon.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     autoconf \
     automake \
@@ -67,12 +69,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-setuptools \
     python3-venv \
     rsync \
+    skopeo \
     subversion \
     swig \
     tar \
     texinfo \
     time \
     u-boot-tools \
+    umoci \
     unzip \
     util-linux \
     wget \

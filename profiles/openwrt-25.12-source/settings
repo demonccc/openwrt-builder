@@ -1,4 +1,4 @@
-# Mode 3: selective source. This profile deliberately demonstrates SDK_URL.
+# Mode 3: selective source with an explicit SDK override.
 METHOD=source
 BUILD_MODE=selective-source
 REPOSITORY=https://github.com/openwrt/openwrt.git

@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip wget zlib1g-dev zstd \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --create-home --uid 1000 builder
+RUN useradd --create-home builder
 WORKDIR /workspace
 USER builder
 ENTRYPOINT ["python3", "scripts/build.py"]

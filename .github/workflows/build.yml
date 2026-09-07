@@ -12,6 +12,9 @@ on:
 permissions:
   contents: write
 
+env:
+  BUILDER_IMAGE: docker.io/demonccc/openwrt-builder:latest
+
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.profile }}
   cancel-in-progress: false
@@ -37,18 +40,27 @@ jobs:
         if: ${{ steps.profile.outputs.method == 'source' }}
         run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
 
-      - name: Build builder image
-        run: docker build -t openwrt-builder .
+      - name: Resolve builder image
+        id: builder
+        run: |
+          if docker pull "$BUILDER_IMAGE"; then
+            echo "image=$BUILDER_IMAGE" >> "$GITHUB_OUTPUT"
+          else
+            echo "Published builder image unavailable; building Dockerfile locally as fallback."
+            docker build -t openwrt-builder:local .
+            echo "image=openwrt-builder:local" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build firmware
         env:
           PROFILE: ${{ inputs.profile }}
+          IMAGE: ${{ steps.builder.outputs.image }}
         run: |
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -e HOME=/tmp \
             -v "$GITHUB_WORKSPACE:/workspace" \
-            openwrt-builder build \
+            "$IMAGE" build \
             --profile "$PROFILE" \
             --output artifact \
             --jobs "$(nproc)"

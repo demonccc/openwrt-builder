@@ -74,6 +74,51 @@ docker run --rm `
 
 The checkout mount keeps `.work/` and `artifact/` in the local repository directory. Linux/macOS examples map the process to the current host UID/GID so generated files are not owned by root. Docker Desktop handles the bind mount on Windows.
 
+## Build verbosity and troubleshooting
+
+OpenWrt controls build verbosity with its `V` make variable. OpenWrt only enables that behavior when `V` has command-line origin, so the portable Docker interface uses `MAKEFLAGS=V=...` rather than a plain `V` environment variable.
+
+Supported diagnostic levels are:
+
+- `normal`: default OpenWrt output
+- `s`: verbose build output
+- `sc`: verbose output including command tracing; use this for the most detailed failure logs
+
+The builder does not automatically retry a failed `make`. A line such as `Please re-run make with -j1 V=s or V=sc` is emitted by OpenWrt itself; it is only a troubleshooting recommendation.
+
+For a deterministic local diagnostic build, use `sc` together with one make job.
+
+Linux / macOS:
+
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -e MAKEFLAGS=V=sc \
+  -v "$PWD:/workspace" \
+  demonccc/openwrt-builder:latest \
+  python3 scripts/build.py build \
+  --profile archer-a9-v6 \
+  --output artifact \
+  --jobs 1
+```
+
+Windows PowerShell:
+
+```powershell
+docker run --rm `
+  -e HOME=/tmp `
+  -e MAKEFLAGS=V=sc `
+  -v "${PWD}:/workspace" `
+  demonccc/openwrt-builder:latest `
+  python3 scripts/build.py build `
+  --profile archer-a9-v6 `
+  --output artifact `
+  --jobs 1
+```
+
+Because the repository is bind-mounted into `/workspace`, the local `.work/` directory remains available after a failed build for manual inspection.
+
 ## Use a locally built builder image
 
 If the Docker environment itself is being changed, build the image locally as documented in [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md), then replace the image name in the commands above with:
@@ -109,6 +154,8 @@ A fork or custom environment can override it with any compatible image, for exam
 mydockeruser/openwrt-builder:latest
 ```
 
+The workflow also exposes a `verbosity` input with `normal`, `s`, and `sc`. `normal` is the default. Choosing `s` or `sc` passes the equivalent OpenWrt make verbosity into the Docker build from the first make invocation; the workflow does not wait for a failure and then re-run the build.
+
 The builder image used to run firmware is intentionally independent from `DOCKERHUB_USERNAME`. `DOCKERHUB_USERNAME` belongs only to the Docker image publication workflow and identifies where that workflow pushes images.
 
 The firmware workflow mounts the current checkout into `/workspace`. Inside the container it executes the same builder used locally:
@@ -119,6 +166,8 @@ python3 scripts/build.py build \
   --output artifact \
   --jobs "$(nproc)"
 ```
+
+When verbose mode is selected, the container additionally receives `MAKEFLAGS=V=s` or `MAKEFLAGS=V=sc`, which is inherited by every OpenWrt `make` launched by `scripts/build.py`.
 
 There is no separate GitHub Actions implementation for source preparation, SDK selection, or OpenWrt prebuilt host tools. `scripts/build.py` performs that logic itself, including resolving and pulling compatible `ghcr.io/openwrt/tools` artifacts when appropriate. This is why local Docker execution and GitHub Actions follow the same build path.
 

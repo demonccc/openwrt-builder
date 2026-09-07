@@ -13,8 +13,8 @@ permissions:
   contents: write
 
 env:
-  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME || github.repository_owner }}
-  BUILDER_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME || github.repository_owner }}/openwrt-builder:latest
+  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+  BUILDER_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME }}/openwrt-builder:latest
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.profile }}
@@ -24,6 +24,13 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
+      - name: Validate Docker Hub configuration
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "DOCKERHUB_USERNAME repository variable is required." >&2
+            exit 1
+          fi
+
       - name: Checkout builder
         uses: actions/checkout@v4
 

@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME || github.repository_owner }}
+  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
 
 concurrency:
   group: builder-image-${{ github.ref }}
@@ -27,6 +27,13 @@ jobs:
   docker:
     runs-on: ubuntu-24.04
     steps:
+      - name: Validate Docker Hub configuration
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "DOCKERHUB_USERNAME repository variable is required." >&2
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
 

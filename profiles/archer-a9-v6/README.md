@@ -1,6 +1,6 @@
-# TP-Link Archer A9 v6 — release-patched example
+# TP-Link Archer A9 v6 — release-patched
 
-This profile demonstrates mode 2, `release-patched`.
+This profile uses mode 2, `release-patched`.
 
 The router needs custom QCN5502 support in ath9k for its integrated 2.4 GHz radio, so the official ImageBuilder alone is insufficient. Recompiling every normal userspace package would also waste time.
 
@@ -8,7 +8,7 @@ The profile builds the custom `openwrt-25.12-archerA9v6` ref, declares `BASE_REF
 
 `source-build-targets` contains `package/kernel/mac80211/compile` because the QCN5502 patch changes ath9k through OpenWrt's mac80211 package.
 
-This is intentionally the `SDK=auto` example. `SDK=none` would remain release-patched; it would only rebuild host tools/toolchain locally.
+With `SDK=auto`, the SDK is resolved from `BASE_REF`. Using `SDK=none` would keep the same `release-patched` package scope while rebuilding host tools and the target toolchain locally.
 
 ## Current Archer source ref
 

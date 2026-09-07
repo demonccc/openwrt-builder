@@ -29,7 +29,7 @@ Only these profiles are kept intentionally:
 
 ## Docker execution
 
-OpenWrt Builder always runs inside Docker, locally and in GitHub Actions. Docker is the portable execution boundary so Windows, macOS, Linux, and CI use the same Linux build environment and the same `scripts/build.py` implementation.
+OpenWrt Builder always runs inside Docker, locally and in GitHub Actions. Running `scripts/build.py` directly on the host is not a supported execution path. Docker is the portable execution boundary so Windows, macOS, Linux, and CI use the same Linux build environment and the same builder implementation.
 
 The canonical image is:
 

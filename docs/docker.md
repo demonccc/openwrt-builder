@@ -107,7 +107,7 @@ build_dir/host
 staging_dir/host
 ```
 
-For source builds that are not already using an SDK, `scripts/build.py` automatically tries to reuse OpenWrt's official prebuilt host-tools image:
+When raw OpenWrt host tools are needed, `scripts/build.py` automatically tries to reuse OpenWrt's official prebuilt host-tools image:
 
 ```text
 ghcr.io/openwrt/tools:<family>
@@ -132,7 +132,8 @@ The OpenWrt tools image is an acceleration artifact only. It never replaces the 
 
 The builder is conservative about reuse:
 
-- If an SDK is in use, host tools come from the SDK and no separate tools image is downloaded.
+- `selective-source` and `full-source` builds that use an SDK reuse the SDK host tools and do not download a separate tools image.
+- `release-patched` intentionally does **not** reuse host tools from the SDK. Official SDK archives already bundle and relocate their host binaries, while the generated ImageBuilder runs OpenWrt's bundling step again. Reusing SDK host tools there would double-bundle wrappers such as `openssl` and `sed`. The SDK therefore accelerates only the target toolchain in this mode; host tools come from an applicable official prebuilt-tools image or are built from source.
 - Official stable OpenWrt refs use their `openwrt-X.Y` tools family.
 - Official OpenWrt `main` uses `ghcr.io/openwrt/tools:latest`.
 - `release-patched` forks compare the custom source against `BASE_REF`. If host-tools inputs such as `tools/`, `toolchain/`, `include/cmake.mk`, or the external-tools/stamp mechanism changed, official prebuilt tools are not reused.
@@ -147,7 +148,7 @@ HOST_TOOLS_IMAGE
 HOST_TOOLS_REASON
 ```
 
-so every source build shows whether host tools came from the SDK, the official prebuilt image, or source.
+so every source build shows whether host tools came from the SDK, the official prebuilt image, or source. For `release-patched`, `HOST_TOOLS_MODE` is intentionally `official-prebuilt` or `source`; `SDK_MODE` separately records target-toolchain acceleration.
 
 ## Builder image consumption
 

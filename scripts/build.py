@@ -521,17 +521,19 @@ def replace_tree(source, destination):
     shutil.copytree(source, destination, symlinks=True)
 
 
-def install_sdk_state(source_dir, sdk_root):
+def install_sdk_state(source_dir, sdk_root, *, include_host_tools=True):
     host, toolchain, tools_stamp, toolchain_stamp = build_state(source_dir)
     sdk_toolchains = list((sdk_root / "staging_dir").glob("toolchain-*"))
     if len(sdk_toolchains) != 1 or sdk_toolchains[0].name != toolchain.name:
         raise BuilderError("SDK toolchain does not match the source build")
-    replace_tree(sdk_root / "staging_dir" / "host", host)
+    if include_host_tools:
+        replace_tree(sdk_root / "staging_dir" / "host", host)
     replace_tree(sdk_toolchains[0], toolchain)
     (toolchain / "stamp").mkdir(parents=True, exist_ok=True)
     (toolchain / "stamp" / ".gcc_final_installed").touch()
-    tools_stamp.parent.mkdir(parents=True, exist_ok=True)
-    tools_stamp.touch()
+    if include_host_tools:
+        tools_stamp.parent.mkdir(parents=True, exist_ok=True)
+        tools_stamp.touch()
     toolchain_stamp.parent.mkdir(parents=True, exist_ok=True)
     toolchain_stamp.touch()
 
@@ -687,14 +689,17 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     targets = parse_simple_list(profile_dir / "source-build-targets")
     source_dir, ref, feeds, base_commit = prepare_source(profile_name, profile_dir, settings, source_ref, [], full=False)
     sdk, sdk_url, sdk_mode = prepare_sdk(profile_name, settings)
-    tools_image, tools_reason = (None, "sdk-provides-host-tools")
-    if not sdk:
-        tools_image, tools_reason = prepare_prebuilt_tools(profile_name, settings, source_dir, ref, base_commit)
+    # Official SDK archives already bundle/relocate host binaries. A generated
+    # ImageBuilder bundles STAGING_DIR_HOST again, so reusing SDK host tools here
+    # would double-bundle wrappers such as openssl and sed. Keep SDK acceleration
+    # for the target toolchain only and use raw official prebuilt host tools (or
+    # source-built host tools as the conservative fallback).
+    tools_image, tools_reason = prepare_prebuilt_tools(profile_name, settings, source_dir, ref, base_commit)
     files = copy_files(profile_dir, source_dir / "files")
     write_config(source_dir, settings, [], [], imagebuilder=True)
     run(["make", "defconfig"], cwd=source_dir)
     if sdk:
-        install_sdk_state(source_dir, sdk)
+        install_sdk_state(source_dir, sdk, include_host_tools=False)
     download_sources(source_dir, jobs, sdk)
     run(["make", "target/linux/compile", f"-j{jobs}"], cwd=source_dir)
     for target in targets:
@@ -710,7 +715,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     if files:
         command.append(f"FILES={(source_dir / 'files').resolve()}")
     run(command, cwd=imagebuilder_dir)
-    host_tools_mode = "sdk" if sdk else ("official-prebuilt" if tools_image else "source")
+    host_tools_mode = "official-prebuilt" if tools_image else "source"
     write_info(output, [f"PROFILE={profile_name}", "METHOD=source", "BUILD_MODE=release-patched", f"REF={ref}", f"BASE_REF={settings['BASE_REF']}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"HOST_TOOLS_MODE={host_tools_mode}", f"HOST_TOOLS_IMAGE={tools_image or 'none'}", f"HOST_TOOLS_REASON={tools_reason}", f"SOURCE_BUILD_TARGETS={' '.join(targets)}", f"LOCAL_APKS={local_apks}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", "UNCHANGED_PACKAGES=official-base-release-repositories"])
 
 

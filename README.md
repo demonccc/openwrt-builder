@@ -31,17 +31,19 @@ Only these profiles are kept intentionally:
 
 OpenWrt Builder always runs inside Docker, locally and in GitHub Actions. Running `scripts/build.py` directly on the host is not a supported execution path. Docker is the portable execution boundary so Windows, macOS, Linux, and CI use the same Linux build environment and the same builder implementation.
 
-The canonical image is:
+The upstream image is:
 
 ```text
 docker.io/demonccc/openwrt-builder:latest
 ```
 
+Forks can publish and consume `openwrt-builder` from their own Docker Hub account by setting the `DOCKERHUB_USERNAME` GitHub Actions repository variable and `DOCKERHUB_TOKEN` secret. The username falls back to `github.repository_owner` when the variable is not set, so no workflow edits are required.
+
 The repository checkout is mounted into `/workspace`; builder code and profiles are not baked into the image.
 
 For commands, see [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md).
 
-For image architecture, local Docker image builds, OpenWrt prebuilt host tools, Docker Hub publishing, and `DOCKERHUB_TOKEN` configuration, see [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md).
+For image architecture, local Docker image builds, OpenWrt prebuilt host tools, Docker Hub publishing, and Docker Hub variable/secret configuration, see [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md).
 
 ## Documentation
 

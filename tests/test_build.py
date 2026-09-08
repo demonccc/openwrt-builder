@@ -2,6 +2,8 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,6 +131,41 @@ other: value
         resolved = BUILDER.target_image_directory(source, {"TARGET": "demo"})
 
         self.assertEqual(resolved, core)
+
+    def test_prepares_generic_kernel_before_device_kernel(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        source = Path(temp.name)
+        image_dir = source / "target" / "linux" / "demo" / "image"
+        image_dir.mkdir(parents=True)
+        (image_dir / "Makefile").write_text("", encoding="utf-8")
+        kernel_target = source / "build_dir" / "target-demo" / "linux-demo" / "vendor_device-kernel.bin"
+        database = SimpleNamespace(
+            returncode=0,
+            stdout=f"install: {kernel_target}\n",
+            stderr="",
+        )
+        commands = []
+
+        def fake_run(command, *, cwd=None, check=True):
+            commands.append(list(command))
+            if str(kernel_target) in command:
+                kernel_target.parent.mkdir(parents=True, exist_ok=True)
+                kernel_target.touch()
+            return SimpleNamespace(returncode=0)
+
+        with patch.object(BUILDER.subprocess, "run", return_value=database), patch.object(
+            BUILDER, "run", side_effect=fake_run
+        ):
+            result = BUILDER.prepare_device_kernel_artifact(
+                source,
+                {"TARGET": "demo", "DEVICE": "vendor_device"},
+                1,
+            )
+
+        self.assertEqual(result, kernel_target)
+        self.assertIn("kernel_prepare", commands[0])
+        self.assertIn(str(kernel_target), commands[1])
 
 
 if __name__ == "__main__":

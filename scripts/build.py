@@ -656,11 +656,12 @@ def parse_device_kernel_target(make_database, device):
 def prepare_device_kernel_artifact(source_dir, settings, jobs):
     image_dir = target_image_directory(source_dir, settings)
     topdir = source_dir.resolve()
+    relative_image_dir = str(image_dir.relative_to(source_dir))
     make_base = [
         "make",
         "-s",
         "-C",
-        str(image_dir.relative_to(source_dir)),
+        relative_image_dir,
         "--no-print-directory",
         f"TOPDIR={topdir}",
         "TARGET_BUILD=",
@@ -678,11 +679,27 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs):
         suffix = f": {detail[-1]}" if detail else ""
         raise BuilderError(f"Could not inspect OpenWrt image make database{suffix}")
     kernel_target = parse_device_kernel_target(database.stdout, settings["DEVICE"])
+    # The per-device kernel rule consumes KDIR/vmlinux (or the target-specific
+    # equivalent). OpenWrt creates that generic image in kernel_prepare; invoking
+    # the device target directly before kernel_prepare leaves its prerequisite
+    # absent even after target/linux/compile.
     run(
         [
             "make",
             "-C",
-            str(image_dir.relative_to(source_dir)),
+            relative_image_dir,
+            f"TOPDIR={topdir}",
+            "TARGET_BUILD=",
+            "kernel_prepare",
+            f"-j{jobs}",
+        ],
+        cwd=source_dir,
+    )
+    run(
+        [
+            "make",
+            "-C",
+            relative_image_dir,
             f"TOPDIR={topdir}",
             "TARGET_BUILD=",
             str(kernel_target),

@@ -653,10 +653,25 @@ def parse_device_kernel_target(make_database, device):
     return candidates[0]
 
 
+def resolve_kernel_image_stamp(kernel_target):
+    candidates = [
+        path / ".image"
+        for path in kernel_target.parent.glob("linux-*")
+        if path.is_dir() and (path / ".config").is_file()
+    ]
+    if len(candidates) != 1:
+        raise BuilderError(
+            f"Expected one configured Linux source directory beside {kernel_target}, found {len(candidates)}"
+        )
+    return candidates[0]
+
+
 def prepare_device_kernel_artifact(source_dir, settings, jobs):
     image_dir = target_image_directory(source_dir, settings)
+    target_dir = image_dir.parent
     topdir = source_dir.resolve()
     relative_image_dir = str(image_dir.relative_to(source_dir))
+    relative_target_dir = str(target_dir.relative_to(source_dir))
     make_base = [
         "make",
         "-s",
@@ -679,10 +694,27 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs):
         suffix = f": {detail[-1]}" if detail else ""
         raise BuilderError(f"Could not inspect OpenWrt image make database{suffix}")
     kernel_target = parse_device_kernel_target(database.stdout, settings["DEVICE"])
-    # The per-device kernel rule consumes KDIR/vmlinux (or the target-specific
-    # equivalent). OpenWrt creates that generic image in kernel_prepare; invoking
-    # the device target directly before kernel_prepare leaves its prerequisite
-    # absent even after target/linux/compile.
+    kernel_image_stamp = resolve_kernel_image_stamp(kernel_target)
+
+    # target/linux/compile builds modules, but OpenWrt only runs
+    # Kernel/CompileImage when the internal $(LINUX_DIR)/.image stamp is built.
+    # That step materializes KDIR/vmlinux, which image/kernel_prepare and the
+    # per-device kernel rule consume afterwards.
+    run(
+        [
+            "make",
+            "-C",
+            relative_target_dir,
+            f"TOPDIR={topdir}",
+            "TARGET_BUILD=1",
+            str(kernel_image_stamp),
+            f"-j{jobs}",
+        ],
+        cwd=source_dir,
+    )
+    if not kernel_image_stamp.is_file():
+        raise BuilderError(f"Generic kernel image stamp was not generated: {kernel_image_stamp}")
+
     run(
         [
             "make",

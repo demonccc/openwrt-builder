@@ -645,20 +645,28 @@ def parse_device_kernel_target(make_database, device):
             continue
         for token in raw.split(":", 1)[1].split():
             path = Path(token)
-            if path.name.startswith(prefix) and "kernel" in path.name and "build_dir" in path.parts:
+            if path.name.startswith(prefix) and "build_dir" in path.parts:
                 candidates.append(path)
     candidates = list(dict.fromkeys(candidates))
     if len(candidates) != 1:
-        raise BuilderError(
-            f"Expected one device kernel target for {device}, found {len(candidates)}"
-        )
+        raise BuilderError(f"Expected one device kernel target for {device}, found {len(candidates)}")
     return candidates[0]
 
 
 def prepare_device_kernel_artifact(source_dir, settings, jobs):
     image_dir = target_image_directory(source_dir, settings)
+    topdir = source_dir.resolve()
+    make_base = [
+        "make",
+        "-s",
+        "-C",
+        str(image_dir.relative_to(source_dir)),
+        "--no-print-directory",
+        f"TOPDIR={topdir}",
+        "TARGET_BUILD=",
+    ]
     database = subprocess.run(
-        ["make", "-s", "-C", str(image_dir), "--no-print-directory", "-pn", "install", "TARGET_BUILD="],
+        [*make_base, "-pn", "install"],
         cwd=source_dir,
         check=False,
         stdout=subprocess.PIPE,
@@ -675,8 +683,9 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs):
             "make",
             "-C",
             str(image_dir.relative_to(source_dir)),
-            str(kernel_target),
+            f"TOPDIR={topdir}",
             "TARGET_BUILD=",
+            str(kernel_target),
             f"-j{jobs}",
         ],
         cwd=source_dir,

@@ -132,7 +132,20 @@ other: value
 
         self.assertEqual(resolved, core)
 
-    def test_prepares_generic_kernel_before_device_kernel(self):
+    def test_resolves_configured_linux_image_stamp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        kernel_target = root / "linux-demo" / "vendor_device-kernel.bin"
+        linux_dir = kernel_target.parent / "linux-6.12.94"
+        linux_dir.mkdir(parents=True)
+        (linux_dir / ".config").write_text("CONFIG_TEST=y\n", encoding="utf-8")
+
+        stamp = BUILDER.resolve_kernel_image_stamp(kernel_target)
+
+        self.assertEqual(stamp, linux_dir / ".image")
+
+    def test_prepares_compiled_kernel_image_before_image_prepare_and_device_kernel(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         source = Path(temp.name)
@@ -140,6 +153,10 @@ other: value
         image_dir.mkdir(parents=True)
         (image_dir / "Makefile").write_text("", encoding="utf-8")
         kernel_target = source / "build_dir" / "target-demo" / "linux-demo" / "vendor_device-kernel.bin"
+        linux_dir = kernel_target.parent / "linux-6.12.94"
+        linux_dir.mkdir(parents=True)
+        (linux_dir / ".config").write_text("CONFIG_TEST=y\n", encoding="utf-8")
+        kernel_image_stamp = linux_dir / ".image"
         database = SimpleNamespace(
             returncode=0,
             stdout=f"install: {kernel_target}\n",
@@ -149,6 +166,8 @@ other: value
 
         def fake_run(command, *, cwd=None, check=True):
             commands.append(list(command))
+            if str(kernel_image_stamp) in command:
+                kernel_image_stamp.touch()
             if str(kernel_target) in command:
                 kernel_target.parent.mkdir(parents=True, exist_ok=True)
                 kernel_target.touch()
@@ -164,8 +183,10 @@ other: value
             )
 
         self.assertEqual(result, kernel_target)
-        self.assertIn("kernel_prepare", commands[0])
-        self.assertIn(str(kernel_target), commands[1])
+        self.assertIn(str(kernel_image_stamp), commands[0])
+        self.assertIn("TARGET_BUILD=1", commands[0])
+        self.assertIn("kernel_prepare", commands[1])
+        self.assertIn(str(kernel_target), commands[2])
 
 
 if __name__ == "__main__":

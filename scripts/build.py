@@ -625,6 +625,77 @@ def resolve_kernel_build_targets(source_dir):
     return packages, targets
 
 
+def target_image_directory(source_dir, settings):
+    target = settings["TARGET"]
+    candidates = (
+        source_dir / "target" / "linux" / "feeds" / target / "image",
+        source_dir / "target" / "linux" / target / "image",
+    )
+    for candidate in candidates:
+        if (candidate / "Makefile").is_file():
+            return candidate
+    raise BuilderError(f"Could not find OpenWrt image Makefile for target {target}")
+
+
+def parse_device_kernel_target(make_database, device):
+    candidates = []
+    prefix = f"{device}-"
+    for raw in make_database.splitlines():
+        if not raw.startswith("install:"):
+            continue
+        for token in raw.split(":", 1)[1].split():
+            path = Path(token)
+            if path.name.startswith(prefix) and "build_dir" in path.parts:
+                candidates.append(path)
+    candidates = list(dict.fromkeys(candidates))
+    if len(candidates) != 1:
+        raise BuilderError(f"Expected one device kernel target for {device}, found {len(candidates)}")
+    return candidates[0]
+
+
+def prepare_device_kernel_artifact(source_dir, settings, jobs):
+    image_dir = target_image_directory(source_dir, settings)
+    topdir = source_dir.resolve()
+    make_base = [
+        "make",
+        "-s",
+        "-C",
+        str(image_dir.relative_to(source_dir)),
+        "--no-print-directory",
+        f"TOPDIR={topdir}",
+        "TARGET_BUILD=",
+    ]
+    database = subprocess.run(
+        [*make_base, "-pn", "install"],
+        cwd=source_dir,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if database.returncode:
+        detail = database.stderr.strip().splitlines()
+        suffix = f": {detail[-1]}" if detail else ""
+        raise BuilderError(f"Could not inspect OpenWrt image make database{suffix}")
+    kernel_target = parse_device_kernel_target(database.stdout, settings["DEVICE"])
+    run(
+        [
+            "make",
+            "-C",
+            str(image_dir.relative_to(source_dir)),
+            f"TOPDIR={topdir}",
+            "TARGET_BUILD=",
+            str(kernel_target),
+            f"-j{jobs}",
+        ],
+        cwd=source_dir,
+    )
+    if not kernel_target.is_file():
+        raise BuilderError(f"Device kernel artifact was not generated: {kernel_target}")
+    print(f"Device kernel artifact: {kernel_target}", flush=True)
+    return kernel_target
+
+
 def configure_download_cache(source_dir):
     if not CACHE_DIR:
         return
@@ -805,6 +876,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     run(["make", "target/linux/compile", f"-j{jobs}"], cwd=source_dir)
     if build_targets:
         run(["make", *build_targets, f"-j{jobs}"], cwd=source_dir)
+    device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)
     run(["make", "package/base-files/compile", f"-j{jobs}"], cwd=source_dir)
     run(["make", "target/imagebuilder/compile", f"-j{jobs}"], cwd=source_dir)
     imagebuilder_dir = generated_imagebuilder(source_dir, settings)
@@ -817,7 +889,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         command.append(f"FILES={(source_dir / 'files').resolve()}")
     run(command, cwd=imagebuilder_dir)
     host_tools_mode = "sdk" if sdk else ("official-prebuilt" if tools_image else "source")
-    write_info(output, [f"PROFILE={profile_name}", "METHOD=source", "BUILD_MODE=release-patched", f"REF={ref}", f"BASE_REF={settings['BASE_REF']}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"HOST_TOOLS_MODE={host_tools_mode}", f"HOST_TOOLS_IMAGE={tools_image or 'none'}", f"HOST_TOOLS_REASON={tools_reason}", f"SOURCE_BUILD_TARGETS={' '.join(targets)}", f"LOCAL_KMOD_PACKAGES={' '.join(kernel_packages)}", f"LOCAL_KMOD_BUILD_TARGETS={' '.join(kernel_targets)}", f"LOCAL_APKS={local_apks}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", "UNCHANGED_PACKAGES=official-base-release-userspace"])
+    write_info(output, [f"PROFILE={profile_name}", "METHOD=source", "BUILD_MODE=release-patched", f"REF={ref}", f"BASE_REF={settings['BASE_REF']}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"HOST_TOOLS_MODE={host_tools_mode}", f"HOST_TOOLS_IMAGE={tools_image or 'none'}", f"HOST_TOOLS_REASON={tools_reason}", f"SOURCE_BUILD_TARGETS={' '.join(targets)}", f"LOCAL_KMOD_PACKAGES={' '.join(kernel_packages)}", f"LOCAL_KMOD_BUILD_TARGETS={' '.join(kernel_targets)}", f"DEVICE_KERNEL_ARTIFACT={device_kernel.name}", f"LOCAL_APKS={local_apks}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", "UNCHANGED_PACKAGES=official-base-release-userspace"])
 
 
 def build_imagebuilder(profile_name, profile_dir, settings, output):

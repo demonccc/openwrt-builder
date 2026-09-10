@@ -1,5 +1,6 @@
 .work/
 .cache/
 artifact/
+logs/
 __pycache__/
 *.pyc

@@ -954,6 +954,7 @@ def build_imagebuilder(profile_name, profile_dir, settings, output):
 
 
 def build(profile_name, source_ref, output, jobs):
+    output = workspace_path(output).resolve()
     profile_dir = resolve_profile(profile_name)
     validate_profile_dir(profile_dir)
     settings = parse_settings(profile_dir / "settings")

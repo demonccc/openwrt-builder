@@ -1,0 +1,33 @@
+import importlib.util
+import inspect
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location("openwrt_builder_explicit_boundary", ROOT / "scripts" / "build.py")
+BUILDER = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+SPEC.loader.exec_module(BUILDER)
+
+
+class ReleasePatchedExplicitBoundaryTests(unittest.TestCase):
+    def test_release_patched_does_not_expand_all_selected_kmods(self):
+        source = inspect.getsource(BUILDER.build_release_patched)
+        self.assertNotIn("resolve_kernel_build_targets", source)
+        self.assertIn("resolve_selected_packages_for_targets", source)
+
+    def test_release_patched_does_not_compile_base_files(self):
+        source = inspect.getsource(BUILDER.build_release_patched)
+        self.assertNotIn('package/base-files/compile', source)
+        self.assertIn('seed_official_imagebuilder_package', source)
+        self.assertIn('"base-files"', source)
+
+    def test_release_patched_compiles_only_declared_package_roots(self):
+        source = inspect.getsource(BUILDER.build_release_patched)
+        self.assertIn("compile_without_dependencies(source_dir, targets, jobs)", source)
+        self.assertIn('custom_packages = list(dict.fromkeys(["kernel", *explicit_packages]))', source)
+
+
+if __name__ == "__main__":
+    unittest.main()

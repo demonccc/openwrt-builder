@@ -10,6 +10,7 @@ The release boundary is intentional:
 - selected kmods are rebuilt against that custom kernel;
 - package roots listed in `source-build-targets` are compiled locally only when the patch requires them;
 - local package roots are built with `NO_DEPS=1`, so unchanged runtime userspace is not rebuilt transitively;
+- local kernel package roots are ordered from OpenWrt package metadata and compiled one root at a time, so locally rebuilt prerequisites are staged before dependent roots without reopening the full runtime dependency graph;
 - the generated ImageBuilder receives only an explicit allowlist of local APKs: `base-files`, `kernel`, selected kmods and selected outputs of `source-build-targets`;
 - `libc` and unchanged userspace packages come from the exact official OpenWrt 25.12.5 release;
 - the custom ImageBuilder repositories and host tools are pinned back to the exact official base release.

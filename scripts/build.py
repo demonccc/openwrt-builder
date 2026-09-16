@@ -598,39 +598,88 @@ def package_metadata(source_dir):
     return metadata
 
 
-def resolve_kernel_build_targets(source_dir):
-    packages = selected_kernel_packages(source_dir)
-    metadata = package_metadata(source_dir)
+def normalize_package_dependency(token):
+    token = token.strip()
+    if not token or token.startswith("@"):
+        return ""
+    token = token.lstrip("+")
+    if ":" in token:
+        token = token.rsplit(":", 1)[1]
+    token = token.lstrip("+")
+    token = re.split(r"[<>= ]", token, maxsplit=1)[0]
+    token = token.split("/", 1)[0]
+    return token
 
-    wanted = set(packages)
-    package_targets = {}
+
+def package_source_metadata(source_dir):
+    result = {}
     current_target = None
-    for raw in metadata.read_text(encoding="utf-8").splitlines():
+    current_package = None
+    for raw in package_metadata(source_dir).read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if line.startswith("Source-Makefile:"):
             makefile = line.split(":", 1)[1].strip()
             current_target = f"{makefile[:-len('/Makefile')]}/compile" if makefile.endswith("/Makefile") else None
-        elif line.startswith("Package:") and current_target:
-            package = line.split(":", 1)[1].strip()
-            if package in wanted:
-                package_targets.setdefault(package, set()).add(current_target)
+            current_package = None
+        elif line.startswith("Package:"):
+            current_package = line.split(":", 1)[1].strip()
+            entry = result.setdefault(current_package, {"targets": set(), "depends": []})
+            if current_target:
+                entry["targets"].add(current_target)
+        elif current_package and line.startswith("Depends:"):
+            result[current_package]["depends"].extend(line.split(":", 1)[1].strip().split())
+    return result
 
-    missing = [package for package in packages if package not in package_targets]
+
+def resolve_kernel_build_targets(source_dir):
+    packages = selected_kernel_packages(source_dir)
+    metadata = package_source_metadata(source_dir)
+
+    missing = [package for package in packages if package not in metadata or not metadata[package]["targets"]]
     if missing:
         raise BuilderError(
             "Could not resolve source build target for selected kernel packages: " + ", ".join(missing)
         )
-    ambiguous = {package: values for package, values in package_targets.items() if len(values) != 1}
+    ambiguous = {package: values["targets"] for package, values in metadata.items() if package in packages and len(values["targets"]) != 1}
     if ambiguous:
         details = "; ".join(f"{package} -> {', '.join(sorted(values))}" for package, values in ambiguous.items())
         raise BuilderError(f"Kernel package source mapping is ambiguous: {details}")
 
+    package_target = {package: next(iter(metadata[package]["targets"])) for package in packages}
     targets = []
     for package in packages:
-        target = next(iter(package_targets[package]))
+        target = package_target[package]
         if target not in targets:
             targets.append(target)
-    return packages, targets
+
+    selected = set(packages)
+    dependencies = {target: set() for target in targets}
+    for package in packages:
+        target = package_target[package]
+        for token in metadata[package]["depends"]:
+            dependency = normalize_package_dependency(token)
+            if dependency not in selected:
+                continue
+            dependency_target = package_target[dependency]
+            if dependency_target != target:
+                dependencies[target].add(dependency_target)
+
+    ordered = []
+    built = set()
+    remaining = list(targets)
+    while remaining:
+        ready = [target for target in remaining if dependencies[target].issubset(built)]
+        if not ready:
+            details = "; ".join(
+                f"{target} -> {', '.join(sorted(dependencies[target] - built))}"
+                for target in remaining
+            )
+            raise BuilderError(f"Kernel source build target dependency cycle: {details}")
+        for target in ready:
+            ordered.append(target)
+            built.add(target)
+            remaining.remove(target)
+    return packages, ordered
 
 
 def resolve_selected_packages_for_targets(source_dir, targets):
@@ -706,10 +755,11 @@ def compile_kernel_modules(source_dir, settings, jobs):
 
 
 def compile_without_dependencies(source_dir, targets, jobs):
-    targets = list(targets)
-    if not targets:
-        return
-    run(["make", *targets, "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)
+    for target in list(targets):
+        # NO_DEPS keeps unrelated runtime userspace out of release-patched, but
+        # roots are intentionally serialized so locally rebuilt kernel packages
+        # can stage their outputs before dependent local roots compile.
+        run(["make", target, "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)
 
 
 def parse_device_kernel_target(make_database, device):
@@ -1025,7 +1075,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     run(["make", "defconfig"], cwd=source_dir)
     kernel_packages, kernel_targets = resolve_kernel_build_targets(source_dir)
     explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)
-    build_targets = list(dict.fromkeys([*targets, *kernel_targets]))
+    build_targets = list(dict.fromkeys([*kernel_targets, *targets]))
     if sdk:
         install_sdk_state(source_dir, sdk)
     else:

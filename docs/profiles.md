@@ -104,8 +104,9 @@ The local build boundary is:
 
 - prepare and compile the custom target/kernel layer from the patched source tree;
 - rebuild every selected kmod required by the final firmware against the custom kernel ABI;
+- derive dependencies between selected local kmods from OpenWrt package metadata, topologically order their source targets and compile those roots one at a time;
 - compile package roots explicitly listed in `source-build-targets` only when the patch requires them;
-- compile local package roots with `NO_DEPS=1`, so their normal runtime dependencies are not recursively rebuilt from source;
+- compile every local package root with `NO_DEPS=1`, so normal runtime userspace dependencies are not recursively rebuilt from source while locally rebuilt prerequisites are still staged in a deterministic order;
 - compile `base-files` locally in isolation because the custom ImageBuilder and kernel image preparation need target-specific release metadata/root state;
 - take `libc` from the exact official base ImageBuilder instead of rebuilding it;
 - generate a custom ImageBuilder containing the patched target/kernel metadata, then pin its repositories and host tools back to the exact official base release.
@@ -133,7 +134,7 @@ LOCAL_KMOD_BUILD_TARGETS
 LOCAL_APK_POLICY=allowlist
 LOCAL_APK_PACKAGES
 OFFICIAL_LIBC_APK
-UNCHANGED_PACKAGES=official-base-release-userspace
+UNCHANGED_USERSPACE_PACKAGES=official-base-release-except-explicit-local
 ```
 
 If an APK required by the local allowlist was not produced, the builder fails instead of silently falling back to an unrelated local package set.

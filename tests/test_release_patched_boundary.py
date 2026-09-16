@@ -14,7 +14,7 @@ SPEC.loader.exec_module(BUILDER)
 
 
 class ReleasePatchedBoundaryTests(unittest.TestCase):
-    def test_compile_without_dependencies_sets_no_deps(self):
+    def test_compile_without_dependencies_serializes_targets_with_no_deps(self):
         source = Path("/tmp/source")
         commands = []
 
@@ -25,18 +25,91 @@ class ReleasePatchedBoundaryTests(unittest.TestCase):
         with patch.object(BUILDER, "run", side_effect=fake_run):
             BUILDER.compile_without_dependencies(
                 source,
-                ["package/kernel/mac80211/compile", "package/kernel/linux/compile"],
+                ["package/kernel/linux/compile", "package/kernel/mac80211/compile"],
                 4,
             )
 
-        self.assertEqual(len(commands), 1)
-        command, cwd = commands[0]
-        self.assertEqual(cwd, source)
-        self.assertEqual(command[0], "make")
-        self.assertIn("package/kernel/mac80211/compile", command)
-        self.assertIn("package/kernel/linux/compile", command)
-        self.assertIn("NO_DEPS=1", command)
-        self.assertIn("-j4", command)
+        self.assertEqual(len(commands), 2)
+        self.assertEqual(commands[0][0][1], "package/kernel/linux/compile")
+        self.assertEqual(commands[1][0][1], "package/kernel/mac80211/compile")
+        for command, cwd in commands:
+            self.assertEqual(cwd, source)
+            self.assertEqual(command[0], "make")
+            self.assertIn("NO_DEPS=1", command)
+            self.assertIn("-j4", command)
+
+    def test_kernel_build_targets_follow_selected_kmod_dependencies(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        source = Path(temp.name)
+        (source / ".config").write_text(
+            """CONFIG_PACKAGE_kmod-batman-adv=y
+CONFIG_PACKAGE_kmod-mac80211=y
+CONFIG_PACKAGE_kmod-cfg80211=y
+CONFIG_PACKAGE_kmod-crypto-cmac=y
+CONFIG_PACKAGE_kmod-gpio-button-hotplug=y
+""",
+            encoding="utf-8",
+        )
+        (source / "tmp").mkdir()
+        (source / "tmp" / ".packageinfo").write_text(
+            """Source-Makefile: package/feeds/routing/batman-adv/Makefile
+Package: kmod-batman-adv
+Depends: +kmod-cfg80211 +kmod-crypto-cmac
+Source-Makefile: package/kernel/mac80211/Makefile
+Package: kmod-mac80211
+Depends: +kmod-cfg80211 +kmod-crypto-cmac
+Package: kmod-cfg80211
+Depends: +kmod-crypto-cmac +hostapd-common
+Source-Makefile: package/kernel/linux/Makefile
+Package: kmod-crypto-cmac
+Depends: +kernel
+Source-Makefile: package/kernel/gpio-button-hotplug/Makefile
+Package: kmod-gpio-button-hotplug
+Depends: +kernel
+""",
+            encoding="utf-8",
+        )
+
+        packages, targets = BUILDER.resolve_kernel_build_targets(source)
+
+        self.assertEqual(
+            packages,
+            [
+                "kmod-batman-adv",
+                "kmod-mac80211",
+                "kmod-cfg80211",
+                "kmod-crypto-cmac",
+                "kmod-gpio-button-hotplug",
+            ],
+        )
+        self.assertLess(targets.index("package/kernel/linux/compile"), targets.index("package/kernel/mac80211/compile"))
+        self.assertLess(targets.index("package/kernel/mac80211/compile"), targets.index("package/feeds/routing/batman-adv/compile"))
+
+    def test_kernel_build_target_dependency_cycle_fails(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        source = Path(temp.name)
+        (source / ".config").write_text(
+            """CONFIG_PACKAGE_kmod-one=y
+CONFIG_PACKAGE_kmod-two=y
+""",
+            encoding="utf-8",
+        )
+        (source / "tmp").mkdir()
+        (source / "tmp" / ".packageinfo").write_text(
+            """Source-Makefile: package/kernel/one/Makefile
+Package: kmod-one
+Depends: +kmod-two
+Source-Makefile: package/kernel/two/Makefile
+Package: kmod-two
+Depends: +kmod-one
+""",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(BUILDER.BuilderError, "dependency cycle"):
+            BUILDER.resolve_kernel_build_targets(source)
 
     def test_resolves_only_selected_packages_for_explicit_targets(self):
         temp = tempfile.TemporaryDirectory()

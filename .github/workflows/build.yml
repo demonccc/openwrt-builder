@@ -4,10 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       profile:
-        description: Profile directory name under profiles/
+        description: Versioned profile under profiles/
         required: true
-        default: openwrt-25.12-source
-        type: string
+        default: archer-a9-v6-25.12.5
+        type: choice
+        options:
+          # BEGIN GENERATED PROFILE OPTIONS
+          - archer-a9-v6-25.12
+          - archer-a9-v6-25.12.5
+          - linksys-velop-whw03-v2-25.12.5
+          - x86-64-24.10.5
+          - x86-64-25.12.5
+          - x86-64-snapshot
+          # END GENERATED PROFILE OPTIONS
       builder_image:
         description: Docker image used as the OpenWrt build environment
         required: true

@@ -1048,6 +1048,31 @@ def seed_official_imagebuilder_package(official_ib, source_dir, settings, packag
     return destination / matches[0].name
 
 
+def seed_official_imagebuilder_keys(official_ib, source_dir, settings):
+    source = official_ib / "keys"
+    if not source.is_dir():
+        raise BuilderError("Official base ImageBuilder does not contain APK signing keys")
+    target_roots = [
+        root
+        for root in source_dir.glob("staging_dir/target-*/root-*")
+        if root.name == f"root-{settings['TARGET']}"
+    ]
+    if len(target_roots) != 1:
+        raise BuilderError(
+            f"Expected one staging root for target {settings['TARGET']}, found {len(target_roots)}"
+        )
+    destination = target_roots[0] / "etc" / "apk" / "keys"
+    destination.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for key in source.iterdir():
+        if key.is_file():
+            shutil.copy2(key, destination / key.name)
+            copied += 1
+    if copied == 0:
+        raise BuilderError("Official base ImageBuilder APK signing keys are empty")
+    return destination
+
+
 def copy_local_apks(source_dir, imagebuilder_dir, allowed_packages):
     destination = imagebuilder_dir / "packages"
     destination.mkdir(exist_ok=True)
@@ -1126,6 +1151,9 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     official_libc = seed_official_imagebuilder_package(
         official_ib, source_dir, settings, "libc"
     )
+    official_keys = seed_official_imagebuilder_keys(
+        official_ib, source_dir, settings
+    )
 
     device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)
     compile_without_dependencies(source_dir, ["target/imagebuilder/compile"], jobs)
@@ -1176,6 +1204,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         f"DEVICE_KERNEL_ARTIFACT={device_kernel.name}",
         f"OFFICIAL_BASE_FILES_APK={official_base_files.name}",
         f"OFFICIAL_LIBC_APK={official_libc.name}",
+        f"OFFICIAL_APK_KEYS={official_keys}",
         f"INCLUDE_PACKAGES={' '.join(include)}",
         f"EXCLUDE_PACKAGES={' '.join(exclude)}",
         f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}",

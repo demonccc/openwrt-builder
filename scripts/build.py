@@ -1073,7 +1073,7 @@ def seed_official_imagebuilder_keys(official_ib, source_dir, settings):
     return destination
 
 
-def seed_official_imagebuilder_versions(official_ib, source_dir):
+def seed_official_imagebuilder_versions(official_ib, source_dir, settings):
     version_mk = official_ib / "include" / "version.mk"
     if not version_mk.is_file():
         raise BuilderError("Official base ImageBuilder does not contain include/version.mk")
@@ -1095,8 +1095,16 @@ def seed_official_imagebuilder_versions(official_ib, source_dir):
             + ", ".join(missing)
         )
 
-    staging_dir = source_dir / "staging_dir"
-    staging_dir.mkdir(parents=True, exist_ok=True)
+    target_roots = [
+        root
+        for root in source_dir.glob("staging_dir/target-*/root-*")
+        if root.name == f"root-{settings['TARGET']}"
+    ]
+    if len(target_roots) != 1:
+        raise BuilderError(
+            f"Expected one staging root for target {settings['TARGET']}, found {len(target_roots)}"
+        )
+    staging_dir = target_roots[0].parent
     written = {}
     for variable, filename in wanted.items():
         destination = staging_dir / filename
@@ -1187,7 +1195,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         official_ib, source_dir, settings
     )
     official_versions = seed_official_imagebuilder_versions(
-        official_ib, source_dir
+        official_ib, source_dir, settings
     )
 
     device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)

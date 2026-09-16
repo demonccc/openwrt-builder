@@ -292,22 +292,25 @@ Package: batctl-full
         root = Path(temp.name)
         official_ib = root / "official"
         source = root / "source"
+        (source / "staging_dir" / "target-mips_24kc_musl" / "root-ath79").mkdir(
+            parents=True, exist_ok=True
+        )
         (official_ib / "include").mkdir(parents=True)
         (official_ib / "include" / "version.mk").write_text(
             "BASE_FILES_VERSION:=1666-r1\nLIBC_VERSION:=1.2.5-r4\n",
             encoding="utf-8",
         )
 
-        versions = BUILDER.seed_official_imagebuilder_versions(official_ib, source)
+        versions = BUILDER.seed_official_imagebuilder_versions(official_ib, source, {"TARGET": "ath79"})
 
         self.assertEqual(versions["BASE_FILES_VERSION"], "1666-r1")
         self.assertEqual(versions["LIBC_VERSION"], "1.2.5-r4")
         self.assertEqual(
-            (source / "staging_dir" / "base-files.version").read_text(encoding="utf-8"),
+            (source / "staging_dir" / "target-mips_24kc_musl" / "base-files.version").read_text(encoding="utf-8"),
             "1666-r1\n",
         )
         self.assertEqual(
-            (source / "staging_dir" / "libc.version").read_text(encoding="utf-8"),
+            (source / "staging_dir" / "target-mips_24kc_musl" / "libc.version").read_text(encoding="utf-8"),
             "1.2.5-r4\n",
         )
 

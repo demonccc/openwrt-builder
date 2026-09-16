@@ -1073,6 +1073,38 @@ def seed_official_imagebuilder_keys(official_ib, source_dir, settings):
     return destination
 
 
+def seed_official_imagebuilder_versions(official_ib, source_dir):
+    version_mk = official_ib / "include" / "version.mk"
+    if not version_mk.is_file():
+        raise BuilderError("Official base ImageBuilder does not contain include/version.mk")
+
+    wanted = {
+        "BASE_FILES_VERSION": "base-files.version",
+        "LIBC_VERSION": "libc.version",
+    }
+    values = {}
+    for raw in version_mk.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"(BASE_FILES_VERSION|LIBC_VERSION):=(.+)", raw.strip())
+        if match:
+            values[match.group(1)] = match.group(2).strip()
+
+    missing = [name for name in wanted if not values.get(name)]
+    if missing:
+        raise BuilderError(
+            "Official base ImageBuilder is missing version metadata: "
+            + ", ".join(missing)
+        )
+
+    staging_dir = source_dir / "staging_dir"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    written = {}
+    for variable, filename in wanted.items():
+        destination = staging_dir / filename
+        destination.write_text(values[variable] + "\n", encoding="utf-8")
+        written[variable] = values[variable]
+    return written
+
+
 def copy_local_apks(source_dir, imagebuilder_dir, allowed_packages):
     destination = imagebuilder_dir / "packages"
     destination.mkdir(exist_ok=True)
@@ -1154,6 +1186,9 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     official_keys = seed_official_imagebuilder_keys(
         official_ib, source_dir, settings
     )
+    official_versions = seed_official_imagebuilder_versions(
+        official_ib, source_dir
+    )
 
     device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)
     compile_without_dependencies(source_dir, ["target/imagebuilder/compile"], jobs)
@@ -1205,6 +1240,8 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         f"OFFICIAL_BASE_FILES_APK={official_base_files.name}",
         f"OFFICIAL_LIBC_APK={official_libc.name}",
         f"OFFICIAL_APK_KEYS={official_keys}",
+        f"OFFICIAL_BASE_FILES_VERSION={official_versions['BASE_FILES_VERSION']}",
+        f"OFFICIAL_LIBC_VERSION={official_versions['LIBC_VERSION']}",
         f"INCLUDE_PACKAGES={' '.join(include)}",
         f"EXCLUDE_PACKAGES={' '.join(exclude)}",
         f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}",

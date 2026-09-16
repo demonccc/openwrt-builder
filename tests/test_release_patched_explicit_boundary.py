@@ -12,9 +12,13 @@ SPEC.loader.exec_module(BUILDER)
 
 
 class ReleasePatchedExplicitBoundaryTests(unittest.TestCase):
+    def test_release_patched_dispatch_is_bound_to_canonical_implementation(self):
+        self.assertIs(BUILDER._CORE.build_release_patched, BUILDER.build_release_patched)
+
     def test_release_patched_does_not_expand_all_selected_kmods(self):
         source = inspect.getsource(BUILDER.build_release_patched)
         self.assertNotIn("resolve_kernel_build_targets", source)
+        self.assertNotIn("kernel_targets", source)
         self.assertIn("resolve_selected_packages_for_targets", source)
 
     def test_release_patched_does_not_compile_base_files(self):
@@ -27,6 +31,12 @@ class ReleasePatchedExplicitBoundaryTests(unittest.TestCase):
         source = inspect.getsource(BUILDER.build_release_patched)
         self.assertIn("compile_without_dependencies(source_dir, targets, jobs)", source)
         self.assertIn('custom_packages = list(dict.fromkeys(["kernel", *explicit_packages]))', source)
+
+    def test_release_patched_never_names_unrelated_package_targets(self):
+        source = inspect.getsource(BUILDER.build_release_patched)
+        self.assertNotIn("batman-adv/compile", source)
+        self.assertNotIn("gpio-button-hotplug/compile", source)
+        self.assertNotIn("package/kernel/linux/compile", source)
 
 
 if __name__ == "__main__":

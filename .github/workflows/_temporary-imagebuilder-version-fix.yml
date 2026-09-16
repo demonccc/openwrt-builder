@@ -1,0 +1,147 @@
+name: Temporary ImageBuilder version fix
+
+on:
+  push:
+    branches:
+      - fix/release-patched-imagebuilder-versions
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/release-patched-imagebuilder-versions
+          fetch-depth: 0
+
+      - name: Patch ImageBuilder version metadata staging
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          build_path = Path('scripts/build.py')
+          tests_path = Path('tests/test_release_patched_boundary.py')
+          build = build_path.read_text(encoding='utf-8')
+          tests = tests_path.read_text(encoding='utf-8')
+
+          anchor = 'def copy_local_apks(source_dir, imagebuilder_dir, allowed_packages):\n'
+          helper = dedent(r'''
+          def seed_official_imagebuilder_versions(official_ib, source_dir):
+              version_mk = official_ib / "include" / "version.mk"
+              if not version_mk.is_file():
+                  raise BuilderError("Official base ImageBuilder does not contain include/version.mk")
+
+              wanted = {
+                  "BASE_FILES_VERSION": "base-files.version",
+                  "LIBC_VERSION": "libc.version",
+              }
+              values = {}
+              for raw in version_mk.read_text(encoding="utf-8").splitlines():
+                  match = re.fullmatch(r"(BASE_FILES_VERSION|LIBC_VERSION):=(.+)", raw.strip())
+                  if match:
+                      values[match.group(1)] = match.group(2).strip()
+
+              missing = [name for name in wanted if not values.get(name)]
+              if missing:
+                  raise BuilderError(
+                      "Official base ImageBuilder is missing version metadata: "
+                      + ", ".join(missing)
+                  )
+
+              staging_dir = source_dir / "staging_dir"
+              staging_dir.mkdir(parents=True, exist_ok=True)
+              written = {}
+              for variable, filename in wanted.items():
+                  destination = staging_dir / filename
+                  destination.write_text(values[variable] + "\n", encoding="utf-8")
+                  written[variable] = values[variable]
+              return written
+
+
+          ''').lstrip()
+          if 'def seed_official_imagebuilder_versions(' not in build:
+              build = build.replace(anchor, helper + anchor, 1)
+
+          old = dedent('''
+              official_keys = seed_official_imagebuilder_keys(
+                  official_ib, source_dir, settings
+              )
+
+              device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)
+          ''').lstrip()
+          new = dedent('''
+              official_keys = seed_official_imagebuilder_keys(
+                  official_ib, source_dir, settings
+              )
+              official_versions = seed_official_imagebuilder_versions(
+                  official_ib, source_dir
+              )
+
+              device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)
+          ''').lstrip()
+          if old not in build:
+              raise SystemExit('Could not find official key staging insertion point')
+          build = build.replace(old, new, 1)
+
+          old_info = '        f"OFFICIAL_APK_KEYS={official_keys}",\n'
+          new_info = (
+              '        f"OFFICIAL_APK_KEYS={official_keys}",\n'
+              '        f"OFFICIAL_BASE_FILES_VERSION={official_versions[\'BASE_FILES_VERSION\']}",\n'
+              '        f"OFFICIAL_LIBC_VERSION={official_versions[\'LIBC_VERSION\']}",\n'
+          )
+          if old_info not in build:
+              raise SystemExit('Could not find BUILD_INFO key insertion point')
+          build = build.replace(old_info, new_info, 1)
+
+          test_anchor = '\n\nif __name__ == "__main__":\n'
+          test_method = dedent(r'''
+              def test_official_imagebuilder_versions_seed_staging_metadata(self):
+                  temp = tempfile.TemporaryDirectory()
+                  self.addCleanup(temp.cleanup)
+                  root = Path(temp.name)
+                  official_ib = root / "official"
+                  source = root / "source"
+                  (official_ib / "include").mkdir(parents=True)
+                  (official_ib / "include" / "version.mk").write_text(
+                      "BASE_FILES_VERSION:=1666-r1\nLIBC_VERSION:=1.2.5-r4\n",
+                      encoding="utf-8",
+                  )
+
+                  versions = BUILDER.seed_official_imagebuilder_versions(official_ib, source)
+
+                  self.assertEqual(versions["BASE_FILES_VERSION"], "1666-r1")
+                  self.assertEqual(versions["LIBC_VERSION"], "1.2.5-r4")
+                  self.assertEqual(
+                      (source / "staging_dir" / "base-files.version").read_text(encoding="utf-8"),
+                      "1666-r1\n",
+                  )
+                  self.assertEqual(
+                      (source / "staging_dir" / "libc.version").read_text(encoding="utf-8"),
+                      "1.2.5-r4\n",
+                  )
+          ''').rstrip() + '\n'
+          test_method = '\n'.join('    ' + line if line else '' for line in test_method.splitlines()) + '\n'
+          if 'test_official_imagebuilder_versions_seed_staging_metadata' not in tests:
+              tests = tests.replace(test_anchor, '\n' + test_method + test_anchor, 1)
+
+          build_path.write_text(build, encoding='utf-8')
+          tests_path.write_text(tests, encoding='utf-8')
+          PY
+
+          python3 -m py_compile scripts/build.py tests/test_release_patched_boundary.py
+          python3 -m unittest discover -s tests -v
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/build.py tests/test_release_patched_boundary.py
+          git commit -m 'fix: seed ImageBuilder release version metadata'
+          git push origin HEAD:fix/release-patched-imagebuilder-versions

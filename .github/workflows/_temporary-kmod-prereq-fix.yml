@@ -23,14 +23,16 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          from textwrap import dedent
 
           build_path = Path('scripts/build.py')
           tests_path = Path('tests/test_release_patched_boundary.py')
           build = build_path.read_text(encoding='utf-8')
           tests = tests_path.read_text(encoding='utf-8')
 
-          anchor = '''def target_image_directory(source_dir, settings):\n'''
-          helpers = r'''def normalize_package_dependency(token):
+          anchor = 'def target_image_directory(source_dir, settings):\n'
+          helpers = dedent(r'''
+          def normalize_package_dependency(token):
               token = token.strip()
               if not token or token.startswith("@"):
                   return None
@@ -129,31 +131,30 @@ jobs:
                   )
 
 
-          '''
-          helpers = helpers.replace('\n          ', '\n').lstrip()
+          ''').lstrip()
           if 'def resolve_external_kmod_prerequisites(' not in build:
               build = build.replace(anchor, helpers + anchor, 1)
 
-          old = '''    explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)\n\n    if sdk:\n'''
-          new = '''    explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)\n    kmod_prerequisites = resolve_external_kmod_prerequisites(\n        source_dir, explicit_packages, targets\n    )\n\n    if sdk:\n'''
+          old = '    explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)\n\n    if sdk:\n'
+          new = '    explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)\n    kmod_prerequisites = resolve_external_kmod_prerequisites(\n        source_dir, explicit_packages, targets\n    )\n\n    if sdk:\n'
           if old not in build:
               raise SystemExit('Could not find explicit_packages insertion point')
           build = build.replace(old, new, 1)
 
-          old = '''    compile_kernel_modules(source_dir, settings, jobs)\n    compile_without_dependencies(source_dir, targets, jobs)\n'''
-          new = '''    compile_kernel_modules(source_dir, settings, jobs)\n    # External in-tree kmods required by the patched package roots must be\n    # staged before package dependency validation. Build only those prerequisite\n    # subpackages; they remain official BASE_REF APKs in the final ImageBuilder.\n    compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)\n    compile_without_dependencies(source_dir, targets, jobs)\n'''
+          old = '    compile_kernel_modules(source_dir, settings, jobs)\n    compile_without_dependencies(source_dir, targets, jobs)\n'
+          new = '    compile_kernel_modules(source_dir, settings, jobs)\n    # External in-tree kmods required by the patched package roots must be\n    # staged before package dependency validation. Build only those prerequisite\n    # subpackages; they remain official BASE_REF APKs in the final ImageBuilder.\n    compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)\n    compile_without_dependencies(source_dir, targets, jobs)\n'
           if old not in build:
               raise SystemExit('Could not find compile insertion point')
           build = build.replace(old, new, 1)
 
-          old = '''        f"SOURCE_BUILD_PACKAGES={' '.join(explicit_packages)}",\n        "KMOD_POLICY=official-base-unless-explicit-source-target",\n'''
-          new = '''        f"SOURCE_BUILD_PACKAGES={' '.join(explicit_packages)}",\n        "KMOD_BUILD_PREREQUISITES=" + " ".join(\n            f"{target}={','.join(packages)}"\n            for target, packages in kmod_prerequisites.items()\n        ),\n        "KMOD_POLICY=official-base-unless-explicit-source-target",\n'''
+          old = '        f"SOURCE_BUILD_PACKAGES={\' \'.join(explicit_packages)}",\n        "KMOD_POLICY=official-base-unless-explicit-source-target",\n'
+          new = '        f"SOURCE_BUILD_PACKAGES={\' \'.join(explicit_packages)}",\n        "KMOD_BUILD_PREREQUISITES=" + " ".join(\n            f"{target}={\',\'.join(packages)}"\n            for target, packages in kmod_prerequisites.items()\n        ),\n        "KMOD_POLICY=official-base-unless-explicit-source-target",\n'
           if old not in build:
               raise SystemExit('Could not find BUILD_INFO insertion point')
           build = build.replace(old, new, 1)
 
-          test_anchor = '''\n\nif __name__ == "__main__":\n'''
-          test_methods = r'''
+          test_anchor = '\n\nif __name__ == "__main__":\n'
+          test_methods = dedent(r'''
               def test_resolves_only_external_kmod_prerequisites_for_explicit_roots(self):
                   temp = tempfile.TemporaryDirectory()
                   self.addCleanup(temp.cleanup)
@@ -184,13 +185,11 @@ jobs:
           """,
                       encoding="utf-8",
                   )
-
                   prerequisites = BUILDER.resolve_external_kmod_prerequisites(
                       source,
                       ["kmod-ath9k", "kmod-ath9k-common", "kmod-ath", "kmod-mac80211"],
                       ["package/kernel/mac80211/compile"],
                   )
-
                   self.assertEqual(
                       prerequisites,
                       {"package/kernel/linux/compile": ["kmod-random-core"]},
@@ -235,8 +234,8 @@ jobs:
                   self.assertIn("CONFIG_PACKAGE_kmod-usb-core=n", command)
                   self.assertIn("NO_DEPS=1", command)
                   self.assertNotIn("package/feeds/routing/batman-adv/compile", command)
-          '''
-          test_methods = test_methods.replace('\n              ', '\n    ').replace('\n          ', '\n').rstrip() + '\n'
+          ''').rstrip() + '\n'
+          test_methods = '\n'.join('    ' + line if line else '' for line in test_methods.splitlines()) + '\n'
           if 'test_resolves_only_external_kmod_prerequisites_for_explicit_roots' not in tests:
               tests = tests.replace(test_anchor, '\n' + test_methods + test_anchor, 1)
 

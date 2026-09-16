@@ -1,0 +1,86 @@
+name: Temporary SDK kernel ABI fix
+
+on:
+  push:
+    branches:
+      - fix/release-patched-sdk-kmod-abi
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/release-patched-sdk-kmod-abi
+          fetch-depth: 0
+
+      - name: Patch release-patched kernel ABI handling
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build_path = Path('scripts/build.py')
+          tests_path = Path('tests/test_release_patched_boundary.py')
+          explicit_tests_path = Path('tests/test_release_patched_explicit_boundary.py')
+
+          build = build_path.read_text(encoding='utf-8')
+          tests = tests_path.read_text(encoding='utf-8')
+          explicit_tests = explicit_tests_path.read_text(encoding='utf-8')
+
+          anchor = '''def compile_kernel_modules(source_dir, settings, jobs):\n    # Avoid target/linux/compile here: its compile target also enters image/compile\n    # and builds image helpers/loaders for the entire target. release-patched only\n    # needs the configured kernel modules before compiling the selected package roots.\n    run(["make", "target/linux/prepare", "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)\n    linux_dir = resolve_linux_source_directory(source_dir, settings)\n'''
+          replacement = '''def resolve_official_imagebuilder_kernel_config(official_ib, settings):\n    build_name = f"linux-{settings['TARGET']}_{settings['SUBTARGET']}"\n    candidates = [\n        path\n        for path in official_ib.glob(f"build_dir/target-*/{build_name}/linux-*/.config")\n        if path.is_file()\n    ]\n    if len(candidates) != 1:\n        raise BuilderError(\n            f"Expected one official kernel config under build_dir/*/{build_name}, found {len(candidates)}"\n        )\n    return candidates[0]\n\n\ndef resolve_official_imagebuilder_kernel_vermagic(official_ib):\n    version_mk = official_ib / "include" / "version.mk"\n    if not version_mk.is_file():\n        raise BuilderError("Official ImageBuilder does not contain include/version.mk")\n    for raw in version_mk.read_text(encoding="utf-8").splitlines():\n        match = re.fullmatch(r"KERNEL_VERSION:=.+~([0-9a-f]+)-r\\d+", raw.strip())\n        if match:\n            return match.group(1)\n    raise BuilderError("Official ImageBuilder is missing a usable KERNEL_VERSION vermagic")\n\n\ndef seed_official_kernel_abi(official_ib, source_dir, settings):\n    linux_dir = resolve_linux_source_directory(source_dir, settings)\n    official_config = resolve_official_imagebuilder_kernel_config(official_ib, settings)\n    config_text = official_config.read_text(encoding="utf-8")\n    vermagic = resolve_official_imagebuilder_kernel_vermagic(official_ib)\n\n    hashed_lines = sorted(\n        line for line in config_text.splitlines()\n        if re.search(r"=[ym]$", line)\n    )\n    calculated = hashlib.md5(("\\n".join(hashed_lines) + "\\n").encode("utf-8")).hexdigest()\n    if calculated != vermagic:\n        raise BuilderError(\n            f"Official kernel config hash {calculated} does not match official vermagic {vermagic}"\n        )\n\n    for name in (".config", ".config.set", ".config.prev"):\n        (linux_dir / name).write_text(config_text, encoding="utf-8")\n    (linux_dir / ".vermagic").write_text(vermagic + "\\n", encoding="utf-8")\n    print(f"Seeded official kernel ABI: {vermagic}", flush=True)\n    return vermagic\n\n\ndef compile_kernel_modules(source_dir, settings, jobs, official_ib=None):\n    # Avoid target/linux/compile here: its compile target also enters image/compile\n    # and builds image helpers/loaders for the entire target. release-patched only\n    # needs the configured kernel modules before compiling the selected package roots.\n    run(["make", "target/linux/prepare", "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)\n    linux_dir = resolve_linux_source_directory(source_dir, settings)\n    if official_ib is not None:\n        seed_official_kernel_abi(official_ib, source_dir, settings)\n'''
+          if anchor not in build:
+              raise SystemExit('compile_kernel_modules anchor not found')
+          build = build.replace(anchor, replacement, 1)
+
+          old = '''    # Official OpenWrt kmod repositories are built with ALL_KMODS enabled.\n    # Match that kernel configuration so unchanged official kmods keep the same\n    # vermagic, while preserving the explicit package-source boundary captured\n    # above before ALL_KMODS expands package selections.\n    with (source_dir / ".config").open("a", encoding="utf-8") as handle:\n        handle.write("CONFIG_ALL_KMODS=y\\n")\n    run(["make", "defconfig"], cwd=source_dir)\n\n    records = package_build_metadata(source_dir)\n    explicit_target_packages = {}\n    for package in explicit_packages:\n        record = records.get(package)\n        if not record or not record["target"]:\n            continue\n        explicit_target_packages.setdefault(record["target"], []).append(package)\n\n'''
+          if old not in build:
+              raise SystemExit('ALL_KMODS block not found')
+          build = build.replace(old, '', 1)
+
+          old = '''    download_sources(source_dir, jobs, sdk)\n\n    # The target kernel/module state is required for the patched package roots,\n    # but unrelated selected kmods are never compiled as package source roots.\n    compile_kernel_modules(source_dir, settings, jobs)\n'''
+          new = '''    download_sources(source_dir, jobs, sdk)\n\n    # Use the exact official release kernel config/vermagic so unchanged BASE_REF\n    # kmods remain ABI-compatible. The custom tree only changes explicit package\n    # roots and device data, not the kernel ABI contract.\n    official_ib = prepare_official_base_imagebuilder(settings, profile_name)\n\n    # The target kernel/module state is required for the patched package roots,\n    # but unrelated selected kmods are never compiled as package source roots.\n    compile_kernel_modules(source_dir, settings, jobs, official_ib=official_ib)\n'''
+          if old not in build:
+              raise SystemExit('kernel compile call anchor not found')
+          build = build.replace(old, new, 1)
+
+          old = '''    compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)\n    # ALL_KMODS is required only to match the official kernel ABI. Do not let it\n    # expand the patched package roots: compile only packages that were selected\n    # for the firmware before ALL_KMODS was enabled.\n    compile_package_prerequisites(source_dir, explicit_target_packages, jobs)\n\n    # base-files and libc are unchanged userspace. Seed the exact official\n    # BASE_REF APKs instead of rebuilding them from the patched tree.\n    official_ib = prepare_official_base_imagebuilder(settings, profile_name)\n'''
+          new = '''    compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)\n    compile_without_dependencies(source_dir, targets, jobs)\n\n    # base-files and libc are unchanged userspace. Seed the exact official\n    # BASE_REF APKs instead of rebuilding them from the patched tree.\n'''
+          if old not in build:
+              raise SystemExit('explicit target compile block not found')
+          build = build.replace(old, new, 1)
+
+          explicit_tests = explicit_tests.replace(
+              '        self.assertIn("CONFIG_ALL_KMODS=y", source)\n        self.assertIn("compile_package_prerequisites(source_dir, explicit_target_packages, jobs)", source)\n',
+              '        self.assertNotIn("CONFIG_ALL_KMODS=y", source)\n        self.assertIn("compile_without_dependencies(source_dir, targets, jobs)", source)\n        self.assertIn("official_ib=official_ib", source)\n'
+          )
+
+          test_anchor = '''    def test_kernel_modules_build_uses_modules_stamp_not_target_compile(self):\n'''
+          new_test = '''    def test_official_kernel_abi_seeds_exact_release_config_and_vermagic(self):\n        temp = tempfile.TemporaryDirectory()\n        self.addCleanup(temp.cleanup)\n        root = Path(temp.name)\n        official_ib = root / "official"\n        source = root / "source"\n        official_config = (\n            official_ib\n            / "build_dir"\n            / "target-mips_24kc_musl"\n            / "linux-ath79_generic"\n            / "linux-6.12.94"\n            / ".config"\n        )\n        official_config.parent.mkdir(parents=True)\n        config_text = "CONFIG_FOO=y\\nCONFIG_BAR=m\\n# CONFIG_BAZ is not set\\n"\n        official_config.write_text(config_text, encoding="utf-8")\n        hashed = hashlib.md5("CONFIG_BAR=m\\nCONFIG_FOO=y\\n".encode("utf-8")).hexdigest()\n        (official_ib / "include").mkdir(parents=True)\n        (official_ib / "include" / "version.mk").write_text(\n            f"KERNEL_VERSION:=6.12.94~{hashed}-r1\\n", encoding="utf-8"\n        )\n        linux_dir = (\n            source\n            / "build_dir"\n            / "target-mips_24kc_musl"\n            / "linux-ath79_generic"\n            / "linux-6.12.94"\n        )\n        linux_dir.mkdir(parents=True)\n\n        result = BUILDER.seed_official_kernel_abi(\n            official_ib, source, {"TARGET": "ath79", "SUBTARGET": "generic"}\n        )\n\n        self.assertEqual(result, hashed)\n        self.assertEqual((linux_dir / ".config").read_text(encoding="utf-8"), config_text)\n        self.assertEqual((linux_dir / ".config.set").read_text(encoding="utf-8"), config_text)\n        self.assertEqual((linux_dir / ".config.prev").read_text(encoding="utf-8"), config_text)\n        self.assertEqual((linux_dir / ".vermagic").read_text(encoding="utf-8"), hashed + "\\n")\n\n    def test_kernel_modules_build_uses_modules_stamp_not_target_compile(self):\n'''
+          if test_anchor not in tests:
+              raise SystemExit('test insertion anchor not found')
+          tests = tests.replace(test_anchor, new_test, 1)
+          if 'import hashlib\n' not in tests:
+              tests = tests.replace('import importlib.util\n', 'import hashlib\nimport importlib.util\n', 1)
+
+          build_path.write_text(build, encoding='utf-8')
+          tests_path.write_text(tests, encoding='utf-8')
+          explicit_tests_path.write_text(explicit_tests, encoding='utf-8')
+          PY
+
+          python3 -m py_compile scripts/build.py tests/test_release_patched_boundary.py tests/test_release_patched_explicit_boundary.py
+          python3 -m unittest discover -s tests -v
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/build.py tests/test_release_patched_boundary.py tests/test_release_patched_explicit_boundary.py
+          git commit -m 'fix: seed release-patched kernel ABI from official ImageBuilder'
+          git push origin HEAD:fix/release-patched-sdk-kmod-abi

@@ -26,8 +26,9 @@ class ReleasePatchedExplicitBoundaryTests(unittest.TestCase):
 
     def test_release_patched_compiles_only_declared_package_roots(self):
         source = inspect.getsource(BUILDER.build_release_patched)
-        self.assertIn("explicit_target_packages", source)
-        self.assertIn("compile_package_prerequisites(source_dir, explicit_target_packages, jobs)", source)
+        self.assertNotIn("CONFIG_ALL_KMODS=y", source)
+        self.assertIn("compile_without_dependencies(source_dir, targets, jobs)", source)
+        self.assertIn("official_ib=official_ib", source)
         self.assertIn('custom_packages = list(dict.fromkeys(["kernel", *explicit_packages]))', source)
 
     def test_release_patched_never_names_unrelated_package_targets(self):

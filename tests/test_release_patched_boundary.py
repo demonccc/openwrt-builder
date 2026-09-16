@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import tempfile
 import unittest
@@ -146,6 +147,47 @@ Package: batctl-full
 
         self.assertEqual(result.name, "libc-1.2.5-r4.apk")
         self.assertEqual(result.read_text(encoding="utf-8"), "libc")
+
+    def test_official_kernel_abi_seeds_exact_release_config_and_vermagic(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        official_ib = root / "official"
+        source = root / "source"
+        official_config = (
+            official_ib
+            / "build_dir"
+            / "target-mips_24kc_musl"
+            / "linux-ath79_generic"
+            / "linux-6.12.94"
+            / ".config"
+        )
+        official_config.parent.mkdir(parents=True)
+        config_text = "CONFIG_FOO=y\nCONFIG_BAR=m\n# CONFIG_BAZ is not set\n"
+        official_config.write_text(config_text, encoding="utf-8")
+        hashed = hashlib.md5("CONFIG_BAR=m\nCONFIG_FOO=y\n".encode("utf-8")).hexdigest()
+        (official_ib / "include").mkdir(parents=True)
+        (official_ib / "include" / "version.mk").write_text(
+            f"KERNEL_VERSION:=6.12.94~{hashed}-r1\n", encoding="utf-8"
+        )
+        linux_dir = (
+            source
+            / "build_dir"
+            / "target-mips_24kc_musl"
+            / "linux-ath79_generic"
+            / "linux-6.12.94"
+        )
+        linux_dir.mkdir(parents=True)
+
+        result = BUILDER.seed_official_kernel_abi(
+            official_ib, source, {"TARGET": "ath79", "SUBTARGET": "generic"}
+        )
+
+        self.assertEqual(result, hashed)
+        self.assertEqual((linux_dir / ".config").read_text(encoding="utf-8"), config_text)
+        self.assertEqual((linux_dir / ".config.set").read_text(encoding="utf-8"), config_text)
+        self.assertEqual((linux_dir / ".config.prev").read_text(encoding="utf-8"), config_text)
+        self.assertEqual((linux_dir / ".vermagic").read_text(encoding="utf-8"), hashed + "\n")
 
     def test_kernel_modules_build_uses_modules_stamp_not_target_compile(self):
         temp = tempfile.TemporaryDirectory()

@@ -740,12 +740,62 @@ def resolve_linux_source_directory(source_dir, settings):
     return candidates[0]
 
 
-def compile_kernel_modules(source_dir, settings, jobs):
+def resolve_official_imagebuilder_kernel_config(official_ib, settings):
+    build_name = f"linux-{settings['TARGET']}_{settings['SUBTARGET']}"
+    candidates = [
+        path
+        for path in official_ib.glob(f"build_dir/target-*/{build_name}/linux-*/.config")
+        if path.is_file()
+    ]
+    if len(candidates) != 1:
+        raise BuilderError(
+            f"Expected one official kernel config under build_dir/*/{build_name}, found {len(candidates)}"
+        )
+    return candidates[0]
+
+
+def resolve_official_imagebuilder_kernel_vermagic(official_ib):
+    version_mk = official_ib / "include" / "version.mk"
+    if not version_mk.is_file():
+        raise BuilderError("Official ImageBuilder does not contain include/version.mk")
+    for raw in version_mk.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"KERNEL_VERSION:=.+~([0-9a-f]+)-r\d+", raw.strip())
+        if match:
+            return match.group(1)
+    raise BuilderError("Official ImageBuilder is missing a usable KERNEL_VERSION vermagic")
+
+
+def seed_official_kernel_abi(official_ib, source_dir, settings):
+    linux_dir = resolve_linux_source_directory(source_dir, settings)
+    official_config = resolve_official_imagebuilder_kernel_config(official_ib, settings)
+    config_text = official_config.read_text(encoding="utf-8")
+    vermagic = resolve_official_imagebuilder_kernel_vermagic(official_ib)
+
+    hashed_lines = sorted(
+        line for line in config_text.splitlines()
+        if re.search(r"=[ym]$", line)
+    )
+    calculated = hashlib.md5(("\n".join(hashed_lines) + "\n").encode("utf-8")).hexdigest()
+    if calculated != vermagic:
+        raise BuilderError(
+            f"Official kernel config hash {calculated} does not match official vermagic {vermagic}"
+        )
+
+    for name in (".config", ".config.set", ".config.prev"):
+        (linux_dir / name).write_text(config_text, encoding="utf-8")
+    (linux_dir / ".vermagic").write_text(vermagic + "\n", encoding="utf-8")
+    print(f"Seeded official kernel ABI: {vermagic}", flush=True)
+    return vermagic
+
+
+def compile_kernel_modules(source_dir, settings, jobs, official_ib=None):
     # Avoid target/linux/compile here: its compile target also enters image/compile
     # and builds image helpers/loaders for the entire target. release-patched only
     # needs the configured kernel modules before compiling the selected package roots.
     run(["make", "target/linux/prepare", "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)
     linux_dir = resolve_linux_source_directory(source_dir, settings)
+    if official_ib is not None:
+        seed_official_kernel_abi(official_ib, source_dir, settings)
     modules_stamp = linux_dir / ".modules"
     target_dir = target_linux_directory(source_dir, settings)
     run(
@@ -1167,43 +1217,28 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         source_dir, explicit_packages, targets
     )
 
-    # Official OpenWrt kmod repositories are built with ALL_KMODS enabled.
-    # Match that kernel configuration so unchanged official kmods keep the same
-    # vermagic, while preserving the explicit package-source boundary captured
-    # above before ALL_KMODS expands package selections.
-    with (source_dir / ".config").open("a", encoding="utf-8") as handle:
-        handle.write("CONFIG_ALL_KMODS=y\n")
-    run(["make", "defconfig"], cwd=source_dir)
-
-    records = package_build_metadata(source_dir)
-    explicit_target_packages = {}
-    for package in explicit_packages:
-        record = records.get(package)
-        if not record or not record["target"]:
-            continue
-        explicit_target_packages.setdefault(record["target"], []).append(package)
-
     if sdk:
         install_sdk_state(source_dir, sdk)
     else:
         run(["make", "tools/install", "toolchain/install", f"-j{jobs}"], cwd=source_dir)
     download_sources(source_dir, jobs, sdk)
 
+    # Use the exact official release kernel config/vermagic so unchanged BASE_REF
+    # kmods remain ABI-compatible. The custom tree only changes explicit package
+    # roots and device data, not the kernel ABI contract.
+    official_ib = prepare_official_base_imagebuilder(settings, profile_name)
+
     # The target kernel/module state is required for the patched package roots,
     # but unrelated selected kmods are never compiled as package source roots.
-    compile_kernel_modules(source_dir, settings, jobs)
+    compile_kernel_modules(source_dir, settings, jobs, official_ib=official_ib)
     # External in-tree kmods required by the patched package roots must be
     # staged before package dependency validation. Build only those prerequisite
     # subpackages; they remain official BASE_REF APKs in the final ImageBuilder.
     compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)
-    # ALL_KMODS is required only to match the official kernel ABI. Do not let it
-    # expand the patched package roots: compile only packages that were selected
-    # for the firmware before ALL_KMODS was enabled.
-    compile_package_prerequisites(source_dir, explicit_target_packages, jobs)
+    compile_without_dependencies(source_dir, targets, jobs)
 
     # base-files and libc are unchanged userspace. Seed the exact official
     # BASE_REF APKs instead of rebuilding them from the patched tree.
-    official_ib = prepare_official_base_imagebuilder(settings, profile_name)
     official_base_files = seed_official_imagebuilder_package(
         official_ib, source_dir, settings, "base-files"
     )

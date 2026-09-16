@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Keep the GitHub Actions build profile dropdown synchronized with profiles/."""
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import re
+import sys
+from pathlib import Path
+
+BEGIN = "          # BEGIN GENERATED PROFILE OPTIONS"
+END = "          # END GENERATED PROFILE OPTIONS"
+PREFERRED_DEFAULT = "archer-a9-v6-25.12.5"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+
+    root = Path(__file__).resolve().parents[1]
+    workflow = root / ".github/workflows/build.yml"
+    spec = importlib.util.spec_from_file_location("profile_catalog", root / "scripts/validate-profile-catalog.py")
+    catalog = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(catalog)
+    profiles = catalog.validate_catalog(root)
+
+    text = workflow.read_text(encoding="utf-8")
+    if text.count(BEGIN) != 1 or text.count(END) != 1:
+        raise SystemExit("ERROR: generated profile option markers are missing or duplicated")
+    before, remainder = text.split(BEGIN, 1)
+    _, after = remainder.split(END, 1)
+    generated = BEGIN + "\n" + "\n".join(f"          - {profile}" for profile in profiles) + "\n" + END
+    expected = before + generated + after
+
+    default_pattern = r"(      profile:\n(?:(?!^      [a-z_]+:).)*?        default: )([^\n]+)"
+    match = re.search(default_pattern, expected, re.DOTALL | re.MULTILINE)
+    if not match:
+        raise SystemExit("ERROR: profile dropdown default is missing")
+    if match.group(2) not in profiles:
+        default = PREFERRED_DEFAULT if PREFERRED_DEFAULT in profiles else profiles[0]
+        expected = expected[: match.start(2)] + default + expected[match.end(2) :]
+
+    if args.check:
+        if text != expected:
+            print("ERROR: GitHub Actions profile choices are stale.", file=sys.stderr)
+            print("Run: python3 scripts/sync-profile-workflow.py", file=sys.stderr)
+            return 1
+        print(f"GitHub Actions profile choices match {len(profiles)} profiles.")
+        return 0
+
+    workflow.write_text(expected, encoding="utf-8")
+    print(f"Updated GitHub Actions with {len(profiles)} profile choices.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

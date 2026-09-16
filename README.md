@@ -2,33 +2,53 @@
 
 Reusable OpenWrt firmware builder powered by Docker and GitHub Actions.
 
-This root README is intentionally an index. The canonical explanation of how builds work lives under [`docs/`](https://github.com/demonccc/openwrt-builder/tree/main/docs), while each profile README explains only why that profile exists and its profile-specific choices.
+The canonical explanation of build modes lives under [`docs/`](docs/). Public build profiles live under [`profiles/`](profiles/) and are selected by versioned profile ID.
+
+## Profile IDs
+
+Profile names follow:
+
+```text
+<device>-<X.Y.Z|X.Y|snapshot>
+```
+
+Examples:
+
+```text
+archer-a9-v6-25.12.5   # exact OpenWrt release
+archer-a9-v6-25.12     # moving OpenWrt 25.12 stable branch
+x86-64-snapshot        # OpenWrt main/snapshot
+```
+
+Build implementation is not part of the public profile name. `imagebuilder`, `release-patched`, `selective-source`, and `full-source` remain settings inside each profile.
+
+The profile catalog is validated in CI. The validator checks required files, settings/package/feed syntax, and consistency between the version encoded in the profile ID and `REF`, `BASE_REF`, SDK/ImageBuilder release URLs. See [`profiles/README.md`](profiles/README.md).
 
 ## Build modes
 
 | Mode | What it compiles |
 | --- | --- |
-| **1. ImageBuilder** | Nothing from source; assembles firmware from prebuilt OpenWrt artifacts |
-| **2. `release-patched`** | Only target/kernel/package components affected by a patch; unchanged packages come from the exact base release |
-| **3. `selective-source`** | Only packages selected for the firmware plus their dependencies |
-| **4. `full-source`** | The broad package universe from source, optionally limited by selected feeds |
+| **ImageBuilder** | Nothing from source; assembles firmware from prebuilt OpenWrt artifacts |
+| **`release-patched`** | Only target/kernel/package components affected by a patch; unchanged packages come from the exact base release |
+| **`selective-source`** | Only packages selected for the firmware plus their dependencies |
+| **`full-source`** | The broad package universe from source, optionally limited by selected feeds |
 
-`SDK` is independent from the build mode. It controls build acceleration, not package scope. See the canonical [Profile reference](https://github.com/demonccc/openwrt-builder/blob/main/docs/profiles.md).
+`SDK` is independent from build mode. It controls build acceleration, not package scope. See [`docs/profiles.md`](docs/profiles.md).
 
 ## Reference profiles
 
 | Profile | Mode | Purpose |
 | --- | --- | --- |
-| [`velop-whw03-v2-imagebuilder`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/velop-whw03-v2-imagebuilder/README.md) | ImageBuilder | Real device profile using OpenWrt 25.12 ImageBuilder |
-| [`openwrt-24.10-imagebuilder`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-24.10-imagebuilder/README.md) | ImageBuilder | Generic x86/64 ImageBuilder profile for OpenWrt 24.10 |
-| [`archer-a9-v6`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6/README.md) | `release-patched` | Archer A9 v6 on exact `v25.12.5 + QCN5502`, reusing unchanged 25.12.5 packages |
-| [`archer-a9-v6-selective-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/archer-a9-v6-selective-source/README.md) | `selective-source` | Archer A9 v6 following the custom OpenWrt 25.12 stable-derived branch |
-| [`openwrt-25.12-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/README.md) | `selective-source` | Selective source build on OpenWrt 25.12.5 |
-| [`snapshot-full-source`](https://github.com/demonccc/openwrt-builder/blob/main/profiles/snapshot-full-source/README.md) | `full-source` | Full source build from current OpenWrt main |
+| [`archer-a9-v6-25.12.5`](profiles/archer-a9-v6-25.12.5/) | `release-patched` | Archer A9 v6 on exact `v25.12.5 + QCN5502` |
+| [`archer-a9-v6-25.12`](profiles/archer-a9-v6-25.12/) | `selective-source` | Archer A9 v6 following the custom OpenWrt 25.12 stable-derived branch |
+| [`linksys-velop-whw03-v2-25.12.5`](profiles/linksys-velop-whw03-v2-25.12.5/) | ImageBuilder | Linksys Velop WHW03 v2 on OpenWrt 25.12.5 |
+| [`x86-64-24.10.5`](profiles/x86-64-24.10.5/) | ImageBuilder | Generic x86/64 on OpenWrt 24.10.5 |
+| [`x86-64-25.12.5`](profiles/x86-64-25.12.5/) | `selective-source` | Generic x86/64 on exact OpenWrt 25.12.5 source |
+| [`x86-64-snapshot`](profiles/x86-64-snapshot/) | `full-source` | Generic x86/64 following OpenWrt main |
 
 ## Docker execution
 
-OpenWrt Builder always runs inside Docker, locally and in GitHub Actions. Running `scripts/build.py` directly on the host is not a supported execution path. Docker is the portable execution boundary so Windows, macOS, Linux, and CI use the same Linux build environment and the same builder implementation.
+OpenWrt Builder always runs inside Docker, locally and in GitHub Actions. Running `scripts/build.py` directly on the host is not a supported firmware-build path. Docker is the portable execution boundary so Windows, macOS, Linux and CI use the same Linux build environment and builder implementation.
 
 The upstream image is:
 
@@ -36,26 +56,13 @@ The upstream image is:
 docker.io/demonccc/openwrt-builder:latest
 ```
 
-Docker Hub integration requires explicit repository configuration:
-
-```text
-DOCKERHUB_USERNAME  GitHub Actions repository variable
-DOCKERHUB_TOKEN     GitHub Actions repository secret
-```
-
-For this repository, `DOCKERHUB_USERNAME` must be set to `demonccc`. Forks set both values for their own Docker Hub account or organization. There is intentionally no automatic fallback from the GitHub repository owner to a Docker Hub namespace.
-
 The repository checkout is mounted into `/workspace`; builder code and profiles are not baked into the image.
 
-For commands, see [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md).
+For commands, see [`docs/usage.md`](docs/usage.md). For image architecture and Docker Hub publishing, see [`docs/docker.md`](docs/docker.md).
 
-For image architecture, local Docker image builds, OpenWrt prebuilt host tools, Docker Hub publishing, and Docker Hub variable/secret configuration, see [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md).
+## GitHub Actions profile selector
 
-## Documentation
-
-- [Using OpenWrt Builder](https://github.com/demonccc/openwrt-builder/blob/main/docs/usage.md)
-- [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md)
-- [Profile reference and build modes](https://github.com/demonccc/openwrt-builder/blob/main/docs/profiles.md)
+The build workflow exposes a choice dropdown generated from the validated profile catalog. `scripts/sync-profile-workflow.py` keeps it synchronized, and `.github/workflows/sync-profile-options.yml` publishes catalog changes after they land on `main`.
 
 ## License
 

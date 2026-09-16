@@ -1,28 +1,24 @@
 # Using OpenWrt Builder
 
-OpenWrt Builder always runs inside Docker. The same containerized execution model is used locally and by GitHub Actions so Windows, macOS, Linux, and CI use the same Linux build environment and the same `scripts/build.py` behavior.
+OpenWrt Builder always runs inside Docker. The same containerized execution model is used locally and by GitHub Actions so Windows, macOS, Linux and CI use the same Linux build environment and the same `scripts/build.py` behavior.
 
-For build-mode and profile semantics, see the canonical [Profile reference](https://github.com/demonccc/openwrt-builder/blob/main/docs/profiles.md).
-
-For Docker image architecture, local image builds, OpenWrt prebuilt host tools, and Docker Hub publication, see [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md).
+Public profiles are versioned. See [`profiles/README.md`](../profiles/README.md) and [`docs/profiles.md`](profiles.md).
 
 ## Prerequisite
 
 Install Docker. On Windows and macOS, Docker Desktop is the simplest supported environment; on Linux, use Docker Engine or Docker Desktop.
 
-Clone the repository and run the commands from its root so the checkout can be mounted at `/workspace`. The Docker image contains the build environment, while `scripts/` and `profiles/` come from the mounted checkout. Therefore new CLI parameters become available after updating the repository checkout; rebuilding the Docker image is not required for script-only changes.
+Clone the repository and run commands from its root so the checkout can be mounted at `/workspace`. The Docker image contains the build environment, while `scripts/` and `profiles/` come from the mounted checkout. Script-only changes do not require rebuilding the Docker image.
 
-## Use the upstream published builder image
-
-Pull the canonical upstream image:
+Pull the canonical builder image:
 
 ```bash
 docker pull demonccc/openwrt-builder:latest
 ```
 
-### Linux / macOS
+## Validate profiles
 
-Validate all profiles:
+Linux / macOS:
 
 ```bash
 docker run --rm \
@@ -33,24 +29,7 @@ docker run --rm \
   python3 scripts/build.py validate
 ```
 
-Build a profile:
-
-```bash
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
-  -e HOME=/tmp \
-  -v "$PWD:/workspace" \
-  demonccc/openwrt-builder:latest \
-  python3 scripts/build.py build \
-  --profile archer-a9-v6 \
-  --output artifact
-```
-
-`--jobs` is optional. When omitted, `scripts/build.py` uses the CPU count visible inside the container.
-
-### Windows PowerShell
-
-Validate all profiles:
+Windows PowerShell:
 
 ```powershell
 docker run --rm `
@@ -60,112 +39,17 @@ docker run --rm `
   python3 scripts/build.py validate
 ```
 
-Build a profile:
-
-```powershell
-docker run --rm `
-  -e HOME=/tmp `
-  -v "${PWD}:/workspace" `
-  demonccc/openwrt-builder:latest `
-  python3 scripts/build.py build `
-  --profile archer-a9-v6 `
-  --output artifact
-```
-
-The checkout mount keeps `.work/`, `artifact/`, the optional local cache, and any requested local log files in the repository directory. Linux/macOS examples map the process to the current host UID/GID so generated files are not owned by root. Docker Desktop handles the bind mount on Windows.
-
-## Persistent local download cache
-
-Local builds can opt into a persistent cache with:
-
-```text
---cache-dir <path>
-```
-
-The cache is disabled by default. When enabled, the builder keeps reusable **downloaded inputs** outside the disposable `.work/` build tree:
-
-- OpenWrt's `dl/` source archive directory;
-- downloaded SDK archives;
-- downloaded ImageBuilder archives, including the official base ImageBuilder used by `release-patched`.
-
-The source checkout, `build_dir/`, target staging state, generated ImageBuilder, and other compilation state are still recreated for each build. This keeps rebuilds reproducible while avoiding repeated large downloads.
-
-OpenWrt validates package/source downloads against the hashes declared by the build metadata. SDK and ImageBuilder cache entries are keyed by their resolved download URL.
-
-Recommended cache location inside the repository checkout:
-
-```text
-.cache/openwrt-builder
-```
-
-It is ignored by Git.
-
-Linux / macOS example:
+Catalog/version validation is stricter than the builder's per-profile parser and is also available directly:
 
 ```bash
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
-  -e HOME=/tmp \
-  -v "$PWD:/workspace" \
-  demonccc/openwrt-builder:latest \
-  python3 scripts/build.py build \
-  --profile archer-a9-v6 \
-  --output artifact \
-  --cache-dir .cache/openwrt-builder
+python3 scripts/validate-profile-catalog.py
 ```
 
-Windows PowerShell example:
+CI runs both forms.
 
-```powershell
-docker run --rm `
-  -e HOME=/tmp `
-  -v "${PWD}:/workspace" `
-  demonccc/openwrt-builder:latest `
-  python3 scripts/build.py build `
-  --profile archer-a9-v6 `
-  --output artifact `
-  --cache-dir .cache/openwrt-builder
-```
+## Build a profile
 
-The first run populates the cache. Later runs print `Cache hit` for reusable SDK/ImageBuilder archives and use the persistent OpenWrt download directory for package sources.
-
-GitHub Actions does not pass `--cache-dir`; CI builds remain clean and ephemeral by default.
-
-## Build parameters for diagnostics
-
-The `build` command exposes diagnostic parameters directly:
-
-```text
---verbosity normal|verbose|debug
---log-file <path>
---jobs <count>
-```
-
-`--verbosity` defaults to `normal`:
-
-- `normal`: normal OpenWrt build output.
-- `verbose`: detailed OpenWrt build output, useful when the normal log hides the failing command.
-- `debug`: maximum diagnostic output, including command tracing. Use this for difficult build failures.
-
-The builder translates those human-readable values internally to OpenWrt's native make verbosity:
-
-```text
-normal  -> default OpenWrt behavior
-verbose -> V=s
-debug   -> V=sc
-```
-
-The native value is added directly to each OpenWrt `make` command by `scripts/build.py`; callers do not need to know or set `V` or `MAKEFLAGS` themselves.
-
-`--log-file` is optional and intended for local execution. When present, the builder creates the parent directory if needed, writes the complete stdout/stderr stream to that file, and continues showing the same output in the terminal. The file is overwritten for each build invocation and must be outside `--output`, because the firmware output directory is recreated by the builder.
-
-`--jobs` controls OpenWrt make parallelism. For normal builds, omit it to use the CPU count visible inside Docker. For troubleshooting, `--jobs 1` keeps failures and command output ordered.
-
-The builder does not automatically retry a failed `make`. A line such as `Please re-run make with -j1 V=s or V=sc` is emitted by OpenWrt itself; it is only a troubleshooting recommendation.
-
-### Recommended local Archer A9 diagnostic build
-
-For Archer A9 troubleshooting, use `debug`, save the complete log, use one make job, and keep the download cache enabled so repeated diagnostic runs do not download the same large inputs again.
+The exact-release Archer A9 v6 profile is `archer-a9-v6-25.12.5`.
 
 Linux / macOS:
 
@@ -176,12 +60,8 @@ docker run --rm \
   -v "$PWD:/workspace" \
   demonccc/openwrt-builder:latest \
   python3 scripts/build.py build \
-  --profile archer-a9-v6 \
-  --output artifact \
-  --cache-dir .cache/openwrt-builder \
-  --jobs 1 \
-  --verbosity debug \
-  --log-file logs/archer-a9-v6.log
+  --profile archer-a9-v6-25.12.5 \
+  --output artifact
 ```
 
 Windows PowerShell:
@@ -192,111 +72,29 @@ docker run --rm `
   -v "${PWD}:/workspace" `
   demonccc/openwrt-builder:latest `
   python3 scripts/build.py build `
-  --profile archer-a9-v6 `
-  --output artifact `
-  --cache-dir .cache/openwrt-builder `
-  --jobs 1 `
-  --verbosity debug `
-  --log-file logs/archer-a9-v6.log
+  --profile archer-a9-v6-25.12.5 `
+  --output artifact
 ```
 
-After a failure, the host checkout contains:
+`--jobs` is optional. When omitted, the builder uses the CPU count visible inside the container. Docker Desktop handles the bind mount on Windows, so the Windows command does not use Linux UID/GID mapping.
+
+## Persistent local download cache
+
+Local builds can opt into a persistent cache with:
 
 ```text
-logs/archer-a9-v6.log
-.cache/openwrt-builder/
-.work/archer-a9-v6/openwrt/
+--cache-dir <path>
 ```
 
-## Use a locally built builder image
-
-If the Docker environment itself is being changed, build the image locally as documented in [Docker architecture](https://github.com/demonccc/openwrt-builder/blob/main/docs/docker.md), then replace the image name in the commands above with:
+Recommended location:
 
 ```text
-openwrt-builder:local
+.cache/openwrt-builder
 ```
 
-For example:
+The cache keeps reusable downloaded inputs: OpenWrt `dl/` source archives and downloaded SDK/ImageBuilder archives. The source checkout, `build_dir/`, target staging state, generated ImageBuilder and compilation outputs are recreated.
 
-```bash
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
-  -e HOME=/tmp \
-  -v "$PWD:/workspace" \
-  openwrt-builder:local \
-  python3 scripts/build.py validate
-```
-
-## GitHub Actions firmware build
-
-Run **Build OpenWrt firmware** and choose a profile directory.
-
-The workflow exposes these execution inputs:
-
-```text
-profile
-builder_image
-verbosity
-```
-
-The default builder image is:
-
-```text
-demonccc/openwrt-builder:latest
-```
-
-A fork or custom environment can override it with any compatible image, for example:
-
-```text
-mydockeruser/openwrt-builder:latest
-```
-
-`verbosity` uses the same `normal`, `verbose`, and `debug` values as local Docker execution. GitHub Actions does not use `--log-file`, because the workflow already retains the complete job log. It also does not use `--cache-dir`; local download reuse is opt-in and CI remains ephemeral by default.
-
-The workflow passes verbosity directly to `scripts/build.py`:
-
-```bash
-python3 scripts/build.py build \
-  --profile "$PROFILE" \
-  --output artifact \
-  --jobs "$(nproc)" \
-  --verbosity "$VERBOSITY"
-```
-
-Successful builds upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
-
-The builder image used to run firmware is intentionally independent from `DOCKERHUB_USERNAME`. `DOCKERHUB_USERNAME` belongs only to the Docker image publication workflow and identifies where that workflow pushes images.
-
-There is no separate GitHub Actions implementation for source preparation, SDK selection, OpenWrt prebuilt host tools, or verbosity. `scripts/build.py` performs that logic itself. This is why local Docker execution and GitHub Actions follow the same build path.
-
-If the requested builder image is unavailable, the workflow builds the repository Dockerfile locally and then runs the same command inside that image.
-
-## Validation workflow
-
-The canonical [profile validation workflow](https://github.com/demonccc/openwrt-builder/blob/main/.github/workflows/validate.yml) also uses:
-
-```text
-demonccc/openwrt-builder:latest
-```
-
-by default.
-
-Automated push and pull-request validation use that default. Manual `workflow_dispatch` validation exposes the same `builder_image` input so another compatible image can be tested explicitly.
-
-Both Python syntax validation and profile validation run inside Docker; no builder code is executed directly on the GitHub runner.
-
-Inside the container the workflow executes:
-
-```bash
-python3 -m py_compile scripts/build.py
-python3 scripts/build.py validate
-```
-
-## Source override
-
-`--source-ref` can temporarily override `REF` while still using the normal Docker execution path.
-
-Example on Linux/macOS:
+Example:
 
 ```bash
 docker run --rm \
@@ -305,9 +103,108 @@ docker run --rm \
   -v "$PWD:/workspace" \
   demonccc/openwrt-builder:latest \
   python3 scripts/build.py build \
-  --profile openwrt-25.12-source \
+  --profile archer-a9-v6-25.12.5 \
+  --output artifact \
+  --cache-dir .cache/openwrt-builder
+```
+
+Windows PowerShell uses the same arguments with PowerShell line continuations.
+
+GitHub Actions intentionally does not pass `--cache-dir`; CI remains clean and ephemeral by default.
+
+## Diagnostics
+
+The `build` command exposes:
+
+```text
+--verbosity normal|verbose|debug
+--log-file <path>
+--jobs <count>
+```
+
+Verbosity maps to OpenWrt make behavior internally:
+
+```text
+normal  -> default OpenWrt behavior
+verbose -> V=s
+debug   -> V=sc
+```
+
+The builder passes the native make variable directly; callers should not set `V` or `MAKEFLAGS` themselves.
+
+Recommended Archer diagnostic build on Linux/macOS:
+
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  demonccc/openwrt-builder:latest \
+  python3 scripts/build.py build \
+  --profile archer-a9-v6-25.12.5 \
+  --output artifact \
+  --cache-dir .cache/openwrt-builder \
+  --jobs 1 \
+  --verbosity debug \
+  --log-file logs/archer-a9-v6-25.12.5.log
+```
+
+Windows PowerShell:
+
+```powershell
+docker run --rm `
+  -e HOME=/tmp `
+  -v "${PWD}:/workspace" `
+  demonccc/openwrt-builder:latest `
+  python3 scripts/build.py build `
+  --profile archer-a9-v6-25.12.5 `
+  --output artifact `
+  --cache-dir .cache/openwrt-builder `
+  --jobs 1 `
+  --verbosity debug `
+  --log-file logs/archer-a9-v6-25.12.5.log
+```
+
+`--log-file` is overwritten on each invocation and must stay outside `--output`, because the firmware output directory is recreated.
+
+## GitHub Actions firmware build
+
+Run **Build OpenWrt firmware**. The `profile` input is a choice dropdown generated from the validated catalog under `profiles/`.
+
+The workflow also exposes `builder_image` and `verbosity`. The default builder image is:
+
+```text
+demonccc/openwrt-builder:latest
+```
+
+Successful builds upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
+
+When a profile is added, removed or renamed, contributors only change the profile catalog. `scripts/sync-profile-workflow.py` derives the dropdown. After the change lands on `main`, `Sync build profile options` publishes the generated workflow update.
+
+## Locally built builder image
+
+If the Docker environment itself changes, build the image locally as documented in [`docs/docker.md`](docker.md), then replace the image name in the commands above with:
+
+```text
+openwrt-builder:local
+```
+
+## Source override
+
+`--source-ref` can temporarily override `REF` while using the normal Docker execution path. This is a diagnostic/development override; it does not change the profile catalog identity or its declared version contract.
+
+For example:
+
+```bash
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
+  -v "$PWD:/workspace" \
+  demonccc/openwrt-builder:latest \
+  python3 scripts/build.py build \
+  --profile x86-64-25.12.5 \
   --source-ref v25.12.5 \
   --output artifact
 ```
 
-When a profile uses an explicit `SDK_URL`, the caller remains responsible for compatibility between that SDK and the overridden source. See the canonical [`openwrt-25.12-source` settings](https://github.com/demonccc/openwrt-builder/blob/main/profiles/openwrt-25.12-source/settings) for an explicit `SDK_URL` example.
+When a profile uses an explicit `SDK_URL`, the caller remains responsible for compatibility between that SDK and a temporary overridden source ref.

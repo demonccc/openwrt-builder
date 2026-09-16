@@ -18,6 +18,32 @@ for _name in dir(_CORE):
         globals()[_name] = getattr(_CORE, _name)
 
 
+def _sync_core(*names):
+    for name in names:
+        if name in globals():
+            setattr(_CORE, name, globals()[name])
+
+
+def compile_without_dependencies(source_dir, targets, jobs):
+    _sync_core("run")
+    return _CORE.compile_without_dependencies(source_dir, targets, jobs)
+
+
+def compile_kernel_modules(source_dir, settings, jobs):
+    _sync_core("run", "resolve_linux_source_directory", "target_linux_directory")
+    return _CORE.compile_kernel_modules(source_dir, settings, jobs)
+
+
+def prepare_device_kernel_artifact(source_dir, settings, jobs):
+    _sync_core(
+        "run",
+        "target_image_directory",
+        "parse_device_kernel_target",
+        "resolve_kernel_image_stamp",
+    )
+    return _CORE.prepare_device_kernel_artifact(source_dir, settings, jobs)
+
+
 def build_release_patched(profile_name, profile_dir, settings, source_ref, output, jobs):
     """Build only the explicitly patched source boundary.
 
@@ -32,9 +58,6 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         profile_name, profile_dir, settings, source_ref, [], full=False
     )
 
-    # Package definitions are needed for defconfig and for mapping the explicit
-    # source-build-targets to the packages they produce. They are metadata only:
-    # being selected for the firmware never makes a package a source-build root.
     install_feed_packages(source_dir, [], [], full=True, feed_names=feeds)
     sdk, sdk_url, sdk_mode = prepare_sdk(profile_name, settings)
     tools_image, tools_reason = (None, "sdk-provides-host-tools")
@@ -47,9 +70,8 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     write_config(source_dir, settings, include, exclude, imagebuilder=True)
     run(["make", "defconfig"], cwd=source_dir)
 
-    # This is the only package-source closure release-patched is allowed to
-    # compile. In particular, do not expand every selected kmod back to its
-    # Source-Makefile: unrelated modules such as batman-adv stay prebuilt.
+    # Only source roots explicitly declared by the profile are rebuilt. Selecting
+    # a kmod for the firmware does not make its Source-Makefile a build target.
     explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)
 
     if sdk:
@@ -61,9 +83,8 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     compile_kernel_modules(source_dir, settings, jobs)
     compile_without_dependencies(source_dir, targets, jobs)
 
-    # Seed immutable userspace from the exact official base release instead of
-    # compiling base-files/libc locally. This mirrors AudioWRT's boundary: only
-    # source that actually changed is rebuilt.
+    # base-files and libc are unchanged userspace. Seed the exact official
+    # BASE_REF APKs instead of rebuilding them from the patched tree.
     official_ib = prepare_official_base_imagebuilder(settings, profile_name)
     official_base_files = seed_official_imagebuilder_package(
         official_ib, source_dir, settings, "base-files"
@@ -78,9 +99,6 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     imagebuilder_dir = generated_imagebuilder(source_dir, settings)
     pin_release_repositories(settings, imagebuilder_dir, profile_name, official_ib=official_ib)
 
-    # Only the custom kernel plus outputs of explicit patched source roots are
-    # injected as locally-built APKs. base-files/libc were seeded above from the
-    # exact official ImageBuilder and are copied only as official artifacts.
     custom_packages = list(dict.fromkeys(["kernel", *explicit_packages]))
     copied_custom_packages = copy_local_apks(source_dir, imagebuilder_dir, custom_packages)
     copied_official_packages = copy_local_apks(
@@ -127,10 +145,22 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     ])
 
 
-# build() and main() live in the core module; make them use the corrected
-# release-patched implementation while keeping the rest of the builder intact.
+def build(profile_name, source_ref, output, jobs):
+    _sync_core(
+        "workspace_path",
+        "resolve_profile",
+        "validate_profile_dir",
+        "parse_settings",
+        "build_imagebuilder",
+        "build_source",
+    )
+    _CORE.build_release_patched = build_release_patched
+    return _CORE.build(profile_name, source_ref, output, jobs)
+
+
 _CORE.build_release_patched = build_release_patched
 
 
 if __name__ == "__main__":
+    _CORE.build_release_patched = build_release_patched
     raise SystemExit(_CORE.main())

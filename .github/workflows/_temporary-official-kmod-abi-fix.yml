@@ -1,0 +1,55 @@
+name: Temporary official kmod ABI fix
+
+on:
+  push:
+    branches:
+      - fix/release-patched-official-kmod-abi
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/release-patched-official-kmod-abi
+          fetch-depth: 0
+
+      - name: Patch release-patched ABI handling
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/build.py')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''    explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)\n    kmod_prerequisites = resolve_external_kmod_prerequisites(\n        source_dir, explicit_packages, targets\n    )\n\n    if sdk:\n'''
+          new = '''    explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)\n    kmod_prerequisites = resolve_external_kmod_prerequisites(\n        source_dir, explicit_packages, targets\n    )\n\n    # Official OpenWrt kmod repositories are built with ALL_KMODS enabled.\n    # Match that kernel configuration so unchanged official kmods keep the same\n    # vermagic, while preserving the explicit package-source boundary captured\n    # above before ALL_KMODS expands package selections.\n    with (source_dir / ".config").open("a", encoding="utf-8") as handle:\n        handle.write("CONFIG_ALL_KMODS=y\\n")\n    run(["make", "defconfig"], cwd=source_dir)\n\n    records = package_build_metadata(source_dir)\n    explicit_target_packages = {}\n    for package in explicit_packages:\n        record = records.get(package)\n        if not record or not record["target"]:\n            continue\n        explicit_target_packages.setdefault(record["target"], []).append(package)\n\n    if sdk:\n'''
+          if old not in text:
+              raise SystemExit('explicit package anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''    compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)\n    compile_without_dependencies(source_dir, targets, jobs)\n\n    # base-files and libc are unchanged userspace. Seed the exact official\n'''
+          new = '''    compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)\n    # ALL_KMODS is required only to match the official kernel ABI. Do not let it\n    # expand the patched package roots: compile only packages that were selected\n    # for the firmware before ALL_KMODS was enabled.\n    compile_package_prerequisites(source_dir, explicit_target_packages, jobs)\n\n    # base-files and libc are unchanged userspace. Seed the exact official\n'''
+          if old not in text:
+              raise SystemExit('compile target anchor not found')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          python3 -m py_compile scripts/build.py
+          python3 -m unittest discover -s tests -v
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/build.py
+          git commit -m 'fix: preserve official kmod ABI in release-patched builds'
+          git push origin HEAD:fix/release-patched-official-kmod-abi

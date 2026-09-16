@@ -98,7 +98,45 @@ SUBTARGET=generic
 DEVICE=vendor_device
 ```
 
-The builder verifies that the exact official base release is an ancestor of the custom source, rebuilds the target/kernel, explicit `source-build-targets`, every selected kmod and its transitive kmod dependencies against the custom kernel, then creates a custom ImageBuilder. Unchanged userspace packages resolve from the exact official base release.
+The builder first verifies that the exact official `BASE_REF` is an ancestor of the custom source. Package definitions are installed so `defconfig` can resolve the final firmware and custom-kernel dependency closure, but that does not mean the whole selected userspace is compiled locally.
+
+The local build boundary is:
+
+- prepare and compile the custom target/kernel layer from the patched source tree;
+- rebuild every selected kmod required by the final firmware against the custom kernel ABI;
+- compile package roots explicitly listed in `source-build-targets` only when the patch requires them;
+- compile local package roots with `NO_DEPS=1`, so their normal runtime dependencies are not recursively rebuilt from source;
+- compile `base-files` locally in isolation because the custom ImageBuilder and kernel image preparation need target-specific release metadata/root state;
+- take `libc` from the exact official base ImageBuilder instead of rebuilding it;
+- generate a custom ImageBuilder containing the patched target/kernel metadata, then pin its repositories and host tools back to the exact official base release.
+
+Only an explicit local APK allowlist is injected into that ImageBuilder:
+
+```text
+base-files
+kernel
+selected kmod-* packages
+selected outputs belonging to source-build-targets
+```
+
+Everything else in userspace is resolved by the final ImageBuilder from the repositories pinned to `BASE_REF`. Unchanged packages such as `hostapd`, `netifd`, `uci`, `ubus`, `libubox`, libraries and utilities must therefore remain official release binaries unless they are explicitly part of the patched build boundary.
+
+This distinction is what separates `release-patched` from `selective-source`: selecting a package for the final firmware does not automatically make it a source-build target.
+
+`BUILD_INFO` records the boundary after every build, including:
+
+```text
+SOURCE_BUILD_TARGETS
+SOURCE_BUILD_PACKAGES
+LOCAL_KMOD_PACKAGES
+LOCAL_KMOD_BUILD_TARGETS
+LOCAL_APK_POLICY=allowlist
+LOCAL_APK_PACKAGES
+OFFICIAL_LIBC_APK
+UNCHANGED_PACKAGES=official-base-release-userspace
+```
+
+If an APK required by the local allowlist was not produced, the builder fails instead of silently falling back to an unrelated local package set.
 
 Example: [`archer-a9-v6-25.12.5`](../profiles/archer-a9-v6-25.12.5/).
 

@@ -576,23 +576,31 @@ def write_config(source_dir, settings, include, exclude, *, full=False, imagebui
     (source_dir / ".config").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def selected_kernel_packages(source_dir):
-    config = source_dir / ".config"
+def selected_package_names(source_dir):
     packages = []
-    for raw in config.read_text(encoding="utf-8").splitlines():
-        match = re.fullmatch(r"CONFIG_PACKAGE_(kmod-[^=]+)=y", raw.strip())
+    for raw in (source_dir / ".config").read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"CONFIG_PACKAGE_([^=]+)=y", raw.strip())
         if match:
             packages.append(match.group(1))
     return list(dict.fromkeys(packages))
 
 
-def resolve_kernel_build_targets(source_dir):
-    packages = selected_kernel_packages(source_dir)
+def selected_kernel_packages(source_dir):
+    return [package for package in selected_package_names(source_dir) if package.startswith("kmod-")]
+
+
+def package_metadata(source_dir):
     metadata = source_dir / "tmp" / ".packageinfo"
     if not metadata.is_file():
         run(["make", "prepare-tmpinfo"], cwd=source_dir)
     if not metadata.is_file():
         raise BuilderError("OpenWrt package metadata is missing after defconfig")
+    return metadata
+
+
+def resolve_kernel_build_targets(source_dir):
+    packages = selected_kernel_packages(source_dir)
+    metadata = package_metadata(source_dir)
 
     wanted = set(packages)
     package_targets = {}
@@ -625,6 +633,23 @@ def resolve_kernel_build_targets(source_dir):
     return packages, targets
 
 
+def resolve_selected_packages_for_targets(source_dir, targets):
+    wanted_targets = set(targets)
+    selected = set(selected_package_names(source_dir))
+    packages = []
+    current_target = None
+    for raw in package_metadata(source_dir).read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("Source-Makefile:"):
+            makefile = line.split(":", 1)[1].strip()
+            current_target = f"{makefile[:-len('/Makefile')]}/compile" if makefile.endswith("/Makefile") else None
+        elif line.startswith("Package:") and current_target in wanted_targets:
+            package = line.split(":", 1)[1].strip()
+            if package in selected and package not in packages:
+                packages.append(package)
+    return packages
+
+
 def target_image_directory(source_dir, settings):
     target = settings["TARGET"]
     candidates = (
@@ -635,6 +660,56 @@ def target_image_directory(source_dir, settings):
         if (candidate / "Makefile").is_file():
             return candidate
     raise BuilderError(f"Could not find OpenWrt image Makefile for target {target}")
+
+
+def target_linux_directory(source_dir, settings):
+    return target_image_directory(source_dir, settings).parent
+
+
+def resolve_linux_source_directory(source_dir, settings):
+    build_name = f"linux-{settings['TARGET']}_{settings['SUBTARGET']}"
+    candidates = [
+        path
+        for path in source_dir.glob(f"build_dir/target-*/{build_name}/linux-*")
+        if path.is_dir()
+    ]
+    if len(candidates) != 1:
+        raise BuilderError(
+            f"Expected one Linux source directory under build_dir/*/{build_name}, found {len(candidates)}"
+        )
+    return candidates[0]
+
+
+def compile_kernel_modules(source_dir, settings, jobs):
+    # Avoid target/linux/compile here: its compile target also enters image/compile
+    # and builds image helpers/loaders for the entire target. release-patched only
+    # needs the configured kernel modules before compiling the selected package roots.
+    run(["make", "target/linux/prepare", "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)
+    linux_dir = resolve_linux_source_directory(source_dir, settings)
+    modules_stamp = linux_dir / ".modules"
+    target_dir = target_linux_directory(source_dir, settings)
+    run(
+        [
+            "make",
+            "-C",
+            str(target_dir.relative_to(source_dir)),
+            f"TOPDIR={source_dir.resolve()}",
+            "TARGET_BUILD=1",
+            str(modules_stamp),
+            f"-j{jobs}",
+        ],
+        cwd=source_dir,
+    )
+    if not modules_stamp.is_file():
+        raise BuilderError(f"Kernel modules stamp was not generated: {modules_stamp}")
+    return modules_stamp
+
+
+def compile_without_dependencies(source_dir, targets, jobs):
+    targets = list(targets)
+    if not targets:
+        return
+    run(["make", *targets, "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)
 
 
 def parse_device_kernel_target(make_database, device):
@@ -696,10 +771,9 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs):
     kernel_target = parse_device_kernel_target(database.stdout, settings["DEVICE"])
     kernel_image_stamp = resolve_kernel_image_stamp(kernel_target)
 
-    # target/linux/compile builds modules, but OpenWrt only runs
-    # Kernel/CompileImage when the internal $(LINUX_DIR)/.image stamp is built.
-    # That step materializes KDIR/vmlinux, which image/kernel_prepare and the
-    # per-device kernel rule consume afterwards.
+    # Kernel/CompileImage materializes KDIR/vmlinux. base-files is prepared before
+    # this point so the optional initramfs path has a valid target root and cannot
+    # leave a misleading successful .image stamp after a missing-root failure.
     run(
         [
             "make",
@@ -867,10 +941,14 @@ def download_imagebuilder(url, destination):
     return roots[0]
 
 
-def pin_release_repositories(settings, custom_ib, profile_name):
+def prepare_official_base_imagebuilder(settings, profile_name):
     release = exact_release(settings["BASE_REF"])
     url = resolve_official_artifact(release, settings["TARGET"], settings["SUBTARGET"], "imagebuilder")
-    official_ib = download_imagebuilder(url, WORK_DIR / profile_name / "base-imagebuilder")
+    return download_imagebuilder(url, WORK_DIR / profile_name / "base-imagebuilder")
+
+
+def pin_release_repositories(settings, custom_ib, profile_name, official_ib=None):
+    official_ib = official_ib or prepare_official_base_imagebuilder(settings, profile_name)
     copied = []
     for name in ("repositories", "repositories.conf"):
         source = official_ib / name
@@ -889,26 +967,54 @@ def pin_release_repositories(settings, custom_ib, profile_name):
     )
 
 
-def copy_local_apks(source_dir, imagebuilder_dir):
+def apk_matches_package(filename, package):
+    prefix = f"{package}-"
+    if not filename.startswith(prefix) or not filename.endswith(".apk"):
+        return False
+    version = filename[len(prefix):]
+    return bool(version) and version[0].isdigit()
+
+
+def seed_official_imagebuilder_package(official_ib, source_dir, settings, package):
+    matches = [
+        path for path in (official_ib / "packages").glob(f"{package}-*.apk")
+        if apk_matches_package(path.name, package)
+    ]
+    if len(matches) != 1:
+        raise BuilderError(f"Expected one official {package} APK in base ImageBuilder, found {len(matches)}")
+    destination = source_dir / "bin" / "targets" / settings["TARGET"] / settings["SUBTARGET"] / "packages"
+    destination.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(matches[0], destination / matches[0].name)
+    return destination / matches[0].name
+
+
+def copy_local_apks(source_dir, imagebuilder_dir, allowed_packages):
     destination = imagebuilder_dir / "packages"
     destination.mkdir(exist_ok=True)
-    count = 0
-    for root in (source_dir / "bin" / "packages", source_dir / "bin" / "targets"):
-        if root.exists():
-            for apk in root.rglob("*.apk"):
-                shutil.copy2(apk, destination / apk.name)
-                count += 1
-    return count
+    roots = (source_dir / "bin" / "packages", source_dir / "bin" / "targets")
+    copied = []
+    for package in list(dict.fromkeys(allowed_packages)):
+        matches_by_name = {}
+        for root in roots:
+            if not root.exists():
+                continue
+            for apk in root.rglob(f"{package}-*.apk"):
+                if apk_matches_package(apk.name, package):
+                    matches_by_name.setdefault(apk.name, apk)
+        matches = list(matches_by_name.values())
+        if len(matches) != 1:
+            raise BuilderError(f"Expected one local APK for {package}, found {len(matches)}")
+        shutil.copy2(matches[0], destination / matches[0].name)
+        copied.append(package)
+    return copied
 
 
 def build_release_patched(profile_name, profile_dir, settings, source_ref, output, jobs):
     include, exclude = parse_packages(profile_dir / "packages")
     targets = parse_simple_list(profile_dir / "source-build-targets")
     source_dir, ref, feeds, base_commit = prepare_source(profile_name, profile_dir, settings, source_ref, [], full=False)
-    # release-patched reuses official userspace packages, but a patched kernel gets
-    # a different kernel ABI/version hash. Install the configured feed package
-    # definitions so defconfig can resolve the complete firmware dependency graph,
-    # then rebuild every selected kmod against the custom kernel.
+    # release-patched needs package definitions to resolve the selected firmware
+    # and custom-kernel closure, but compilation is deliberately isolated below.
     install_feed_packages(source_dir, [], [], full=True, feed_names=feeds)
     sdk, sdk_url, sdk_mode = prepare_sdk(profile_name, settings)
     tools_image, tools_reason = (None, "sdk-provides-host-tools")
@@ -918,19 +1024,36 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     write_config(source_dir, settings, include, exclude, imagebuilder=True)
     run(["make", "defconfig"], cwd=source_dir)
     kernel_packages, kernel_targets = resolve_kernel_build_targets(source_dir)
+    explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)
     build_targets = list(dict.fromkeys([*targets, *kernel_targets]))
     if sdk:
         install_sdk_state(source_dir, sdk)
+    else:
+        # SDK=none is still supported, but its toolchain genuinely has to be built.
+        run(["make", "tools/install", "toolchain/install", f"-j{jobs}"], cwd=source_dir)
     download_sources(source_dir, jobs, sdk)
-    run(["make", "target/linux/compile", f"-j{jobs}"], cwd=source_dir)
-    if build_targets:
-        run(["make", *build_targets, f"-j{jobs}"], cwd=source_dir)
+
+    compile_kernel_modules(source_dir, settings, jobs)
+    compile_without_dependencies(source_dir, build_targets, jobs)
+
+    # base-files is needed before Kernel/CompileImage so OpenWrt has a valid
+    # target root for its optional initramfs path. NO_DEPS is the same boundary
+    # used by AudioWRT: runtime userspace dependencies stay official binaries.
+    compile_without_dependencies(source_dir, ["package/base-files/compile"], jobs)
     device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)
-    run(["make", "package/base-files/compile", f"-j{jobs}"], cwd=source_dir)
-    run(["make", "target/imagebuilder/compile", f"-j{jobs}"], cwd=source_dir)
+
+    # A generated ImageBuilder always embeds base-files, libc and kernel. Keep
+    # libc byte-for-byte from the exact official base release instead of building
+    # it as an accidental dependency of base-files.
+    official_ib = prepare_official_base_imagebuilder(settings, profile_name)
+    official_libc = seed_official_imagebuilder_package(official_ib, source_dir, settings, "libc")
+    compile_without_dependencies(source_dir, ["target/imagebuilder/compile"], jobs)
+
     imagebuilder_dir = generated_imagebuilder(source_dir, settings)
-    pin_release_repositories(settings, imagebuilder_dir, profile_name)
-    local_apks = copy_local_apks(source_dir, imagebuilder_dir)
+    pin_release_repositories(settings, imagebuilder_dir, profile_name, official_ib=official_ib)
+    local_packages = list(dict.fromkeys(["base-files", "kernel", *kernel_packages, *explicit_packages]))
+    copied_local_packages = copy_local_apks(source_dir, imagebuilder_dir, local_packages)
+
     prepare_output(output)
     package_args = include + [f"-{package}" for package in exclude]
     command = ["make", "image", f"PROFILE={settings['DEVICE']}", f"PACKAGES={' '.join(package_args)}", f"BIN_DIR={output}"]
@@ -938,7 +1061,31 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         command.append(f"FILES={(source_dir / 'files').resolve()}")
     run(command, cwd=imagebuilder_dir)
     host_tools_mode = "sdk" if sdk else ("official-prebuilt" if tools_image else "source")
-    write_info(output, [f"PROFILE={profile_name}", "METHOD=source", "BUILD_MODE=release-patched", f"REF={ref}", f"BASE_REF={settings['BASE_REF']}", f"SDK_MODE={sdk_mode}", f"SDK_URL={sdk_url or 'none'}", f"HOST_TOOLS_MODE={host_tools_mode}", f"HOST_TOOLS_IMAGE={tools_image or 'none'}", f"HOST_TOOLS_REASON={tools_reason}", f"SOURCE_BUILD_TARGETS={' '.join(targets)}", f"LOCAL_KMOD_PACKAGES={' '.join(kernel_packages)}", f"LOCAL_KMOD_BUILD_TARGETS={' '.join(kernel_targets)}", f"DEVICE_KERNEL_ARTIFACT={device_kernel.name}", f"LOCAL_APKS={local_apks}", f"INCLUDE_PACKAGES={' '.join(include)}", f"EXCLUDE_PACKAGES={' '.join(exclude)}", f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}", "UNCHANGED_PACKAGES=official-base-release-userspace"])
+    write_info(output, [
+        f"PROFILE={profile_name}",
+        "METHOD=source",
+        "BUILD_MODE=release-patched",
+        f"REF={ref}",
+        f"BASE_REF={settings['BASE_REF']}",
+        f"SDK_MODE={sdk_mode}",
+        f"SDK_URL={sdk_url or 'none'}",
+        f"HOST_TOOLS_MODE={host_tools_mode}",
+        f"HOST_TOOLS_IMAGE={tools_image or 'none'}",
+        f"HOST_TOOLS_REASON={tools_reason}",
+        f"SOURCE_BUILD_TARGETS={' '.join(targets)}",
+        f"SOURCE_BUILD_PACKAGES={' '.join(explicit_packages)}",
+        f"LOCAL_KMOD_PACKAGES={' '.join(kernel_packages)}",
+        f"LOCAL_KMOD_BUILD_TARGETS={' '.join(kernel_targets)}",
+        f"DEVICE_KERNEL_ARTIFACT={device_kernel.name}",
+        f"OFFICIAL_LIBC_APK={official_libc.name}",
+        "LOCAL_APK_POLICY=allowlist",
+        f"LOCAL_APKS={len(copied_local_packages)}",
+        f"LOCAL_APK_PACKAGES={' '.join(copied_local_packages)}",
+        f"INCLUDE_PACKAGES={' '.join(include)}",
+        f"EXCLUDE_PACKAGES={' '.join(exclude)}",
+        f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}",
+        "UNCHANGED_USERSPACE_PACKAGES=official-base-release-except-explicit-local",
+    ])
 
 
 def build_imagebuilder(profile_name, profile_dir, settings, output):

@@ -29,9 +29,11 @@ The profile catalog is validated in CI. The validator checks required files, set
 | Mode | What it compiles |
 | --- | --- |
 | **ImageBuilder** | Nothing from source; assembles firmware from prebuilt OpenWrt artifacts |
-| **`release-patched`** | Only target/kernel/package components affected by a patch; unchanged packages come from the exact base release |
+| **`release-patched`** | Only the custom kernel/target layer, selected kmods and explicitly affected package roots; unchanged userspace comes from the exact base release |
 | **`selective-source`** | Only packages selected for the firmware plus their dependencies |
 | **`full-source`** | The broad package universe from source, optionally limited by selected feeds |
+
+`release-patched` enforces that boundary: local package roots are built with `NO_DEPS=1`, the generated ImageBuilder receives an explicit local-APK allowlist, and unchanged runtime userspace is resolved from the repositories pinned to `BASE_REF`. `BUILD_INFO` records the exact locally injected package set.
 
 `SDK` is independent from build mode. It controls build acceleration, not package scope. See [`docs/profiles.md`](docs/profiles.md).
 

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Reusable OpenWrt profile builder used locally and by GitHub Actions."""
+"""Reusable OpenWrt profile builder used locally and by GitHub Actions.
+
+`build_core.py` contains shared builder helpers and the generic source/imagebuilder
+flows. `release-patched` intentionally lives here because it has a stricter
+source boundary: only the profile's explicit `source-build-targets` are compiled
+from the patched tree. Selecting a firmware package or kmod never promotes its
+source tree into the local build set.
+"""
 
 from __future__ import annotations
 
@@ -70,8 +77,8 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     write_config(source_dir, settings, include, exclude, imagebuilder=True)
     run(["make", "defconfig"], cwd=source_dir)
 
-    # Only source roots explicitly declared by the profile are rebuilt. Selecting
-    # a kmod for the firmware does not make its Source-Makefile a build target.
+    # This is the complete local package-source boundary for release-patched.
+    # Do not derive additional build roots from CONFIG_PACKAGE_kmod-* selections.
     explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)
 
     if sdk:
@@ -80,6 +87,8 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         run(["make", "tools/install", "toolchain/install", f"-j{jobs}"], cwd=source_dir)
     download_sources(source_dir, jobs, sdk)
 
+    # The target kernel/module state is required for the patched package roots,
+    # but unrelated selected kmods are never compiled as package source roots.
     compile_kernel_modules(source_dir, settings, jobs)
     compile_without_dependencies(source_dir, targets, jobs)
 
@@ -145,6 +154,11 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     ])
 
 
+def _bind_release_patched_dispatch():
+    """Bind the core dispatcher to the canonical release-patched implementation."""
+    _CORE.build_release_patched = build_release_patched
+
+
 def build(profile_name, source_ref, output, jobs):
     _sync_core(
         "workspace_path",
@@ -154,13 +168,14 @@ def build(profile_name, source_ref, output, jobs):
         "build_imagebuilder",
         "build_source",
     )
-    _CORE.build_release_patched = build_release_patched
+    _bind_release_patched_dispatch()
     return _CORE.build(profile_name, source_ref, output, jobs)
 
 
-_CORE.build_release_patched = build_release_patched
+# Keep imports and direct calls deterministic too, not only CLI execution.
+_bind_release_patched_dispatch()
 
 
 if __name__ == "__main__":
-    _CORE.build_release_patched = build_release_patched
+    _bind_release_patched_dispatch()
     raise SystemExit(_CORE.main())

@@ -262,5 +262,29 @@ Package: batctl-full
             self.assertNotIn("package/feeds/routing/batman-adv/compile", command)
 
 
+    def test_seeds_official_apk_keys_into_target_staging_root(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        official_ib = root / "official"
+        source = root / "source"
+        (official_ib / "keys").mkdir(parents=True)
+        (official_ib / "keys" / "openwrt-key.pem").write_text("key", encoding="utf-8")
+        staging = source / "staging_dir" / "target-mips_24kc_musl" / "root-ath79"
+        staging.mkdir(parents=True)
+
+        result = BUILDER.seed_official_imagebuilder_keys(
+            official_ib,
+            source,
+            {"TARGET": "ath79"},
+        )
+
+        self.assertEqual(result, staging / "etc" / "apk" / "keys")
+        self.assertEqual(
+            (result / "openwrt-key.pem").read_text(encoding="utf-8"),
+            "key",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

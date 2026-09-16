@@ -181,5 +181,86 @@ Package: batctl-full
         self.assertFalse(any("target/linux/compile" in command for command in commands))
 
 
+        def test_resolves_only_external_kmod_prerequisites_for_explicit_roots(self):
+            temp = tempfile.TemporaryDirectory()
+            self.addCleanup(temp.cleanup)
+            source = Path(temp.name)
+            (source / ".config").write_text(
+                """CONFIG_PACKAGE_kmod-ath9k=y
+    CONFIG_PACKAGE_kmod-ath9k-common=y
+    CONFIG_PACKAGE_kmod-ath=y
+    CONFIG_PACKAGE_kmod-mac80211=y
+    CONFIG_PACKAGE_kmod-random-core=y
+    CONFIG_PACKAGE_kmod-usb-core=y
+    """,
+                encoding="utf-8",
+            )
+            (source / "tmp").mkdir()
+            (source / "tmp" / ".packageinfo").write_text(
+                """Source-Makefile: package/kernel/mac80211/Makefile
+    Package: kmod-ath9k
+    Depends: +kmod-ath9k-common
+    Package: kmod-ath9k-common
+    Depends: +kmod-ath +kmod-random-core
+    Package: kmod-ath
+    Depends: +kmod-mac80211
+    Package: kmod-mac80211
+    Source-Makefile: package/kernel/linux/Makefile
+    Package: kmod-random-core
+    Package: kmod-usb-core
+    """,
+                encoding="utf-8",
+            )
+            prerequisites = BUILDER.resolve_external_kmod_prerequisites(
+                source,
+                ["kmod-ath9k", "kmod-ath9k-common", "kmod-ath", "kmod-mac80211"],
+                ["package/kernel/mac80211/compile"],
+            )
+            self.assertEqual(
+                prerequisites,
+                {"package/kernel/linux/compile": ["kmod-random-core"]},
+            )
+
+        def test_prerequisite_compile_disables_unrelated_selected_packages(self):
+            temp = tempfile.TemporaryDirectory()
+            self.addCleanup(temp.cleanup)
+            source = Path(temp.name)
+            (source / ".config").write_text(
+                """CONFIG_PACKAGE_kmod-random-core=y
+    CONFIG_PACKAGE_kmod-usb-core=y
+    """,
+                encoding="utf-8",
+            )
+            (source / "tmp").mkdir()
+            (source / "tmp" / ".packageinfo").write_text(
+                """Source-Makefile: package/kernel/linux/Makefile
+    Package: kmod-random-core
+    Package: kmod-usb-core
+    """,
+                encoding="utf-8",
+            )
+            commands = []
+
+            def fake_run(command, *, cwd=None, check=True):
+                commands.append((list(command), cwd))
+                return SimpleNamespace(returncode=0)
+
+            with patch.object(BUILDER, "run", side_effect=fake_run):
+                BUILDER.compile_package_prerequisites(
+                    source,
+                    {"package/kernel/linux/compile": ["kmod-random-core"]},
+                    4,
+                )
+
+            self.assertEqual(len(commands), 1)
+            command, cwd = commands[0]
+            self.assertEqual(cwd, source)
+            self.assertIn("package/kernel/linux/compile", command)
+            self.assertIn("CONFIG_PACKAGE_kmod-random-core=y", command)
+            self.assertIn("CONFIG_PACKAGE_kmod-usb-core=n", command)
+            self.assertIn("NO_DEPS=1", command)
+            self.assertNotIn("package/feeds/routing/batman-adv/compile", command)
+
+
 if __name__ == "__main__":
     unittest.main()

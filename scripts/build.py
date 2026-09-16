@@ -611,6 +611,105 @@ def resolve_selected_packages_for_targets(source_dir, targets):
     return packages
 
 
+def normalize_package_dependency(token):
+    token = token.strip()
+    if not token or token.startswith("@"):
+        return None
+    token = token.lstrip("+")
+    if ":" in token:
+        token = token.rsplit(":", 1)[1]
+    token = token.split("(", 1)[0].strip()
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+_.-]*", token):
+        return token
+    return None
+
+
+def package_build_metadata(source_dir):
+    records = {}
+    current_target = None
+    current_package = None
+    for raw in package_metadata(source_dir).read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("Source-Makefile:"):
+            makefile = line.split(":", 1)[1].strip()
+            current_target = (
+                f"{makefile[:-len('/Makefile')]}/compile"
+                if makefile.endswith("/Makefile")
+                else None
+            )
+            current_package = None
+        elif line.startswith("Package:"):
+            current_package = line.split(":", 1)[1].strip()
+            records[current_package] = {"target": current_target, "depends": []}
+        elif line.startswith("Depends:") and current_package:
+            dependencies = []
+            for token in line.split(":", 1)[1].split():
+                package = normalize_package_dependency(token)
+                if package and package not in dependencies:
+                    dependencies.append(package)
+            records[current_package]["depends"] = dependencies
+    return records
+
+
+def resolve_external_kmod_prerequisites(source_dir, root_packages, explicit_targets):
+    records = package_build_metadata(source_dir)
+    explicit_targets = set(explicit_targets)
+    queue = list(root_packages)
+    seen = set(queue)
+    prerequisites = {}
+
+    while queue:
+        package = queue.pop(0)
+        record = records.get(package)
+        if not record:
+            continue
+        for dependency in record["depends"]:
+            if not dependency.startswith("kmod-") or dependency in seen:
+                continue
+            seen.add(dependency)
+            queue.append(dependency)
+            dependency_record = records.get(dependency)
+            if not dependency_record:
+                continue
+            target = dependency_record["target"]
+            if target and target not in explicit_targets:
+                packages = prerequisites.setdefault(target, [])
+                if dependency not in packages:
+                    packages.append(dependency)
+    return prerequisites
+
+
+def compile_package_prerequisites(source_dir, prerequisites, jobs):
+    if not prerequisites:
+        return
+    records = package_build_metadata(source_dir)
+    selected = set(selected_package_names(source_dir))
+    for target, required_packages in prerequisites.items():
+        required = set(required_packages)
+        selected_from_target = [
+            package
+            for package, record in records.items()
+            if record["target"] == target and package in selected
+        ]
+        overrides = [
+            f"CONFIG_PACKAGE_{package}=n"
+            for package in selected_from_target
+            if package not in required
+        ]
+        overrides.extend(
+            f"CONFIG_PACKAGE_{package}=y" for package in required_packages
+        )
+        print(
+            f"Preparing kernel package prerequisites from {target}: "
+            + ", ".join(required_packages),
+            flush=True,
+        )
+        run(
+            ["make", target, *overrides, "NO_DEPS=1", f"-j{jobs}"],
+            cwd=source_dir,
+        )
+
+
 def target_image_directory(source_dir, settings):
     target = settings["TARGET"]
     candidates = (
@@ -999,6 +1098,9 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     # This is the complete local package-source boundary for release-patched.
     # Do not derive additional build roots from CONFIG_PACKAGE_kmod-* selections.
     explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)
+    kmod_prerequisites = resolve_external_kmod_prerequisites(
+        source_dir, explicit_packages, targets
+    )
 
     if sdk:
         install_sdk_state(source_dir, sdk)
@@ -1009,6 +1111,10 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     # The target kernel/module state is required for the patched package roots,
     # but unrelated selected kmods are never compiled as package source roots.
     compile_kernel_modules(source_dir, settings, jobs)
+    # External in-tree kmods required by the patched package roots must be
+    # staged before package dependency validation. Build only those prerequisite
+    # subpackages; they remain official BASE_REF APKs in the final ImageBuilder.
+    compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)
     compile_without_dependencies(source_dir, targets, jobs)
 
     # base-files and libc are unchanged userspace. Seed the exact official
@@ -1060,6 +1166,10 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         f"HOST_TOOLS_REASON={tools_reason}",
         f"SOURCE_BUILD_TARGETS={' '.join(targets)}",
         f"SOURCE_BUILD_PACKAGES={' '.join(explicit_packages)}",
+        "KMOD_BUILD_PREREQUISITES=" + " ".join(
+            f"{target}={','.join(packages)}"
+            for target, packages in kmod_prerequisites.items()
+        ),
         "KMOD_POLICY=official-base-unless-explicit-source-target",
         f"CUSTOM_APK_PACKAGES={' '.join(copied_custom_packages)}",
         f"OFFICIAL_SEEDED_PACKAGES={' '.join(copied_official_packages)}",

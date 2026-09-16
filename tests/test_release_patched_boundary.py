@@ -286,5 +286,31 @@ Package: batctl-full
         )
 
 
+    def test_official_imagebuilder_versions_seed_staging_metadata(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        official_ib = root / "official"
+        source = root / "source"
+        (official_ib / "include").mkdir(parents=True)
+        (official_ib / "include" / "version.mk").write_text(
+            "BASE_FILES_VERSION:=1666-r1\nLIBC_VERSION:=1.2.5-r4\n",
+            encoding="utf-8",
+        )
+
+        versions = BUILDER.seed_official_imagebuilder_versions(official_ib, source)
+
+        self.assertEqual(versions["BASE_FILES_VERSION"], "1666-r1")
+        self.assertEqual(versions["LIBC_VERSION"], "1.2.5-r4")
+        self.assertEqual(
+            (source / "staging_dir" / "base-files.version").read_text(encoding="utf-8"),
+            "1666-r1\n",
+        )
+        self.assertEqual(
+            (source / "staging_dir" / "libc.version").read_text(encoding="utf-8"),
+            "1.2.5-r4\n",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

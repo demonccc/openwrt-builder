@@ -1167,6 +1167,22 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         source_dir, explicit_packages, targets
     )
 
+    # Official OpenWrt kmod repositories are built with ALL_KMODS enabled.
+    # Match that kernel configuration so unchanged official kmods keep the same
+    # vermagic, while preserving the explicit package-source boundary captured
+    # above before ALL_KMODS expands package selections.
+    with (source_dir / ".config").open("a", encoding="utf-8") as handle:
+        handle.write("CONFIG_ALL_KMODS=y\n")
+    run(["make", "defconfig"], cwd=source_dir)
+
+    records = package_build_metadata(source_dir)
+    explicit_target_packages = {}
+    for package in explicit_packages:
+        record = records.get(package)
+        if not record or not record["target"]:
+            continue
+        explicit_target_packages.setdefault(record["target"], []).append(package)
+
     if sdk:
         install_sdk_state(source_dir, sdk)
     else:
@@ -1180,7 +1196,10 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     # staged before package dependency validation. Build only those prerequisite
     # subpackages; they remain official BASE_REF APKs in the final ImageBuilder.
     compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)
-    compile_without_dependencies(source_dir, targets, jobs)
+    # ALL_KMODS is required only to match the official kernel ABI. Do not let it
+    # expand the patched package roots: compile only packages that were selected
+    # for the firmware before ALL_KMODS was enabled.
+    compile_package_prerequisites(source_dir, explicit_target_packages, jobs)
 
     # base-files and libc are unchanged userspace. Seed the exact official
     # BASE_REF APKs instead of rebuilding them from the patched tree.

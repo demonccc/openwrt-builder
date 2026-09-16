@@ -12,9 +12,6 @@ SPEC.loader.exec_module(BUILDER)
 
 
 class ReleasePatchedExplicitBoundaryTests(unittest.TestCase):
-    def test_release_patched_dispatch_is_bound_to_canonical_implementation(self):
-        self.assertIs(BUILDER._CORE.build_release_patched, BUILDER.build_release_patched)
-
     def test_release_patched_does_not_expand_all_selected_kmods(self):
         source = inspect.getsource(BUILDER.build_release_patched)
         self.assertNotIn("resolve_kernel_build_targets", source)

@@ -68,23 +68,21 @@ jobs:
           if 'def seed_official_imagebuilder_versions(' not in build:
               build = build.replace(anchor, helper + anchor, 1)
 
-          old = dedent('''
-              official_keys = seed_official_imagebuilder_keys(
-                  official_ib, source_dir, settings
-              )
-
-              device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)
-          ''').lstrip()
-          new = dedent('''
-              official_keys = seed_official_imagebuilder_keys(
-                  official_ib, source_dir, settings
-              )
-              official_versions = seed_official_imagebuilder_versions(
-                  official_ib, source_dir
-              )
-
-              device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)
-          ''').lstrip()
+          old = (
+              '    official_keys = seed_official_imagebuilder_keys(\n'
+              '        official_ib, source_dir, settings\n'
+              '    )\n\n'
+              '    device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)\n'
+          )
+          new = (
+              '    official_keys = seed_official_imagebuilder_keys(\n'
+              '        official_ib, source_dir, settings\n'
+              '    )\n'
+              '    official_versions = seed_official_imagebuilder_versions(\n'
+              '        official_ib, source_dir\n'
+              '    )\n\n'
+              '    device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)\n'
+          )
           if old not in build:
               raise SystemExit('Could not find official key staging insertion point')
           build = build.replace(old, new, 1)

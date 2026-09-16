@@ -47,21 +47,25 @@ jobs:
               raise SystemExit('version helper call anchor not found')
           build = build.replace(old, new, 1)
 
+          old = '''        source = root / "source"\n        (official_ib / "include").mkdir(parents=True)\n'''
+          new = '''        source = root / "source"\n        (source / "staging_dir" / "target-mips_24kc_musl" / "root-ath79").mkdir(\n            parents=True, exist_ok=True\n        )\n        (official_ib / "include").mkdir(parents=True)\n'''
+          if old not in tests:
+              raise SystemExit('test source setup anchor not found')
+          tests = tests.replace(old, new, 1)
+
+          old = '        versions = BUILDER.seed_official_imagebuilder_versions(official_ib, source)\n'
+          new = '        versions = BUILDER.seed_official_imagebuilder_versions(official_ib, source, {"TARGET": "ath79"})\n'
+          if old not in tests:
+              raise SystemExit('test helper call anchor not found')
+          tests = tests.replace(old, new, 1)
+
           tests = tests.replace(
-              'BUILDER.seed_official_imagebuilder_versions(official_ib, source)',
-              'BUILDER.seed_official_imagebuilder_versions(official_ib, source, {"TARGET": "ath79"})'
+              '(source / "staging_dir" / "base-files.version").read_text(encoding="utf-8")',
+              '(source / "staging_dir" / "target-mips_24kc_musl" / "base-files.version").read_text(encoding="utf-8")'
           )
           tests = tests.replace(
-              '(source / "staging_dir").mkdir(parents=True, exist_ok=True)',
-              '(source / "staging_dir" / "target-mips_24kc_musl" / "root-ath79").mkdir(parents=True, exist_ok=True)'
-          )
-          tests = tests.replace(
-              'source / "staging_dir" / "base-files.version"',
-              'source / "staging_dir" / "target-mips_24kc_musl" / "base-files.version"'
-          )
-          tests = tests.replace(
-              'source / "staging_dir" / "libc.version"',
-              'source / "staging_dir" / "target-mips_24kc_musl" / "libc.version"'
+              '(source / "staging_dir" / "libc.version").read_text(encoding="utf-8")',
+              '(source / "staging_dir" / "target-mips_24kc_musl" / "libc.version").read_text(encoding="utf-8")'
           )
 
           build_path.write_text(build, encoding='utf-8')

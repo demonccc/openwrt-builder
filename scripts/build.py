@@ -54,6 +54,29 @@ def resolve_target_staging_root(source_dir):
     return root
 
 
+def clear_official_initramfs_source(linux_dir):
+    """Remove absolute build-host initramfs paths inherited from the official ImageBuilder."""
+    config = Path(linux_dir) / ".config"
+    if not config.is_file():
+        raise BuilderError(f"Kernel config is missing: {config}")
+
+    lines = config.read_text(encoding="utf-8").splitlines()
+    replaced = False
+    rewritten = []
+    for line in lines:
+        if line.startswith("CONFIG_INITRAMFS_SOURCE="):
+            rewritten.append('CONFIG_INITRAMFS_SOURCE=""')
+            replaced = True
+        else:
+            rewritten.append(line)
+
+    if not replaced:
+        rewritten.append('CONFIG_INITRAMFS_SOURCE=""')
+
+    config.write_text("\n".join(rewritten) + "\n", encoding="utf-8")
+    print("Cleared stale CONFIG_INITRAMFS_SOURCE from official kernel config", flush=True)
+
+
 def refresh_kernel_atomic_headers(linux_dir):
     """Regenerate checksum-protected atomic headers with the kernel's generator."""
     linux_dir = Path(linux_dir).resolve()
@@ -79,9 +102,10 @@ def refresh_kernel_atomic_headers(linux_dir):
 
 
 def seed_official_kernel_abi(official_ib, source_dir, settings):
-    """Seed the release ABI, then refresh generated atomic headers before Kbuild."""
+    """Seed the release ABI while removing build-host-only state from the official config."""
     vermagic = _seed_official_kernel_abi_impl(official_ib, source_dir, settings)
     linux_dir = resolve_linux_source_directory(source_dir, settings)
+    clear_official_initramfs_source(linux_dir)
     refresh_kernel_atomic_headers(linux_dir)
     return vermagic
 

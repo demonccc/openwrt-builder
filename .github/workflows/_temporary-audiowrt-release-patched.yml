@@ -21,7 +21,8 @@ jobs:
       - name: Apply patch and run tests
         run: |
           python3 .github/_temporary_patch_release.py
-          python3 -m py_compile scripts/build.py tests/test_release_patched_boundary.py tests/test_release_patched_explicit_boundary.py
+          python3 .github/_temporary_patch_tests.py
+          python3 -m py_compile scripts/build.py tests/test_build.py tests/test_release_patched_boundary.py tests/test_release_patched_explicit_boundary.py
           python3 -m unittest discover -s tests -v
 
       - name: Free disk space
@@ -53,6 +54,6 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add scripts/build.py tests/test_release_patched_boundary.py tests/test_release_patched_explicit_boundary.py
+          git add scripts/build.py tests/test_build.py tests/test_release_patched_boundary.py tests/test_release_patched_explicit_boundary.py
           git commit -m 'fix: build release-patched package roots in official SDK'
           git push origin HEAD:fix/release-patched-sdk-kmod-abi

@@ -17,7 +17,8 @@ globals()["__name__"] = _ORIGINAL_NAME
 
 def resolve_target_staging_root(source_dir):
     """Resolve STAGING_DIR_ROOT from OpenWrt make metadata and create it if needed."""
-    helper = Path(source_dir) / ".owb-staging.mk"
+    source_dir = Path(source_dir).resolve()
+    helper = source_dir / ".owb-staging.mk"
     helper.write_text(
         "owb-staging:\n\t@printf '%s\\n' '$(STAGING_DIR_ROOT)'\n",
         encoding="utf-8",
@@ -42,7 +43,10 @@ def resolve_target_staging_root(source_dir):
 
     if not output:
         raise BuilderError("OpenWrt did not resolve STAGING_DIR_ROOT")
-    root = Path(output).resolve()
+    root = Path(output)
+    if not root.is_absolute():
+        root = source_dir / root
+    root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
     return root
 

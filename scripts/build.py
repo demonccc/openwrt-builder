@@ -771,18 +771,11 @@ def seed_official_kernel_abi(official_ib, source_dir, settings):
     config_text = official_config.read_text(encoding="utf-8")
     vermagic = resolve_official_imagebuilder_kernel_vermagic(official_ib)
 
-    hashed_lines = sorted(
-        line for line in config_text.splitlines()
-        if re.search(r"=[ym]$", line)
-    )
-    calculated = hashlib.md5(("\n".join(hashed_lines) + "\n").encode("utf-8")).hexdigest()
-    if calculated != vermagic:
-        raise BuilderError(
-            f"Official kernel config hash {calculated} does not match official vermagic {vermagic}"
-        )
-
-    for name in (".config", ".config.set", ".config.prev"):
-        (linux_dir / name).write_text(config_text, encoding="utf-8")
+    # The release ImageBuilder contains the effective kernel .config and embeds
+    # the already-computed release vermagic. OpenWrt computes vermagic from
+    # .config.set, which is not shipped in the ImageBuilder, so do not attempt
+    # to reconstruct or validate that hash from the effective .config.
+    (linux_dir / ".config").write_text(config_text, encoding="utf-8")
     (linux_dir / ".vermagic").write_text(vermagic + "\n", encoding="utf-8")
     print(f"Seeded official kernel ABI: {vermagic}", flush=True)
     return vermagic
@@ -794,20 +787,29 @@ def compile_kernel_modules(source_dir, settings, jobs, official_ib=None):
     # needs the configured kernel modules before compiling the selected package roots.
     run(["make", "target/linux/prepare", "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)
     linux_dir = resolve_linux_source_directory(source_dir, settings)
+    modules_stamp = linux_dir / ".modules"
+    configured_stamp = linux_dir / ".configured"
+    target_dir = target_linux_directory(source_dir, settings)
+    make_base = [
+        "make",
+        "-C",
+        str(target_dir.relative_to(source_dir)),
+        f"TOPDIR={source_dir.resolve()}",
+        "TARGET_BUILD=1",
+    ]
+
+    # Let OpenWrt run its normal configure step once so generated headers and
+    # configuration side effects are present. Then replace only the effective
+    # kernel config/vermagic with the exact official release values.
+    run([*make_base, str(configured_stamp), f"-j{jobs}"], cwd=source_dir)
     if official_ib is not None:
         seed_official_kernel_abi(official_ib, source_dir, settings)
-    modules_stamp = linux_dir / ".modules"
-    target_dir = target_linux_directory(source_dir, settings)
+
+    # .modules depends on .configured, and that target is FORCE'd by OpenWrt.
+    # Suppress the second Kernel/Configure invocation or it would overwrite the
+    # official .config and regenerate the custom vermagic immediately.
     run(
-        [
-            "make",
-            "-C",
-            str(target_dir.relative_to(source_dir)),
-            f"TOPDIR={source_dir.resolve()}",
-            "TARGET_BUILD=1",
-            str(modules_stamp),
-            f"-j{jobs}",
-        ],
+        [*make_base, "Kernel/Configure=", str(modules_stamp), f"-j{jobs}"],
         cwd=source_dir,
     )
     if not modules_stamp.is_file():
@@ -891,6 +893,7 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs):
             relative_target_dir,
             f"TOPDIR={topdir}",
             "TARGET_BUILD=1",
+            "Kernel/Configure=",
             str(kernel_image_stamp),
             f"-j{jobs}",
         ],

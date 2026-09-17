@@ -165,10 +165,10 @@ Package: batctl-full
         official_config.parent.mkdir(parents=True)
         config_text = "CONFIG_FOO=y\nCONFIG_BAR=m\n# CONFIG_BAZ is not set\n"
         official_config.write_text(config_text, encoding="utf-8")
-        hashed = hashlib.md5("CONFIG_BAR=m\nCONFIG_FOO=y\n".encode("utf-8")).hexdigest()
+        vermagic = "f58943ca8e5ad0ff489b492a7983a376"
         (official_ib / "include").mkdir(parents=True)
         (official_ib / "include" / "version.mk").write_text(
-            f"KERNEL_VERSION:=6.12.94~{hashed}-r1\n", encoding="utf-8"
+            f"KERNEL_VERSION:=6.12.94~{vermagic}-r1\n", encoding="utf-8"
         )
         linux_dir = (
             source
@@ -183,11 +183,11 @@ Package: batctl-full
             official_ib, source, {"TARGET": "ath79", "SUBTARGET": "generic"}
         )
 
-        self.assertEqual(result, hashed)
+        self.assertEqual(result, vermagic)
         self.assertEqual((linux_dir / ".config").read_text(encoding="utf-8"), config_text)
-        self.assertEqual((linux_dir / ".config.set").read_text(encoding="utf-8"), config_text)
-        self.assertEqual((linux_dir / ".config.prev").read_text(encoding="utf-8"), config_text)
-        self.assertEqual((linux_dir / ".vermagic").read_text(encoding="utf-8"), hashed + "\n")
+        self.assertFalse((linux_dir / ".config.set").exists())
+        self.assertFalse((linux_dir / ".config.prev").exists())
+        self.assertEqual((linux_dir / ".vermagic").read_text(encoding="utf-8"), vermagic + "\n")
 
     def test_kernel_modules_build_uses_modules_stamp_not_target_compile(self):
         temp = tempfile.TemporaryDirectory()
@@ -219,7 +219,9 @@ Package: batctl-full
         self.assertEqual(result, modules_stamp)
         self.assertIn("target/linux/prepare", commands[0])
         self.assertIn("NO_DEPS=1", commands[0])
-        self.assertIn(str(modules_stamp), commands[1])
+        self.assertIn(str(linux_dir / ".configured"), commands[1])
+        self.assertIn(str(modules_stamp), commands[2])
+        self.assertIn("Kernel/Configure=", commands[2])
         self.assertFalse(any("target/linux/compile" in command for command in commands))
 
 

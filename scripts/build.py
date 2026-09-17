@@ -805,13 +805,15 @@ def compile_kernel_modules(source_dir, settings, jobs, official_ib=None):
     if official_ib is not None:
         seed_official_kernel_abi(official_ib, source_dir, settings)
 
-    # .modules depends on .configured, and that target is FORCE'd by OpenWrt.
-    # Re-run only the kernel's olddefconfig step against the official effective
-    # .config so generated auto.conf/autoconf headers stay synchronized without
-    # rebuilding OpenWrt's .config.set or changing the release vermagic.
+    # .modules normally compiles the complete target kernel module set.
+    # release-patched only needs a prepared kernel tree for explicit package
+    # roots such as mac80211. Keep OpenWrt's stamp/dependency flow, but replace
+    # Kernel/CompileModules with modules_prepare so generated headers, scripts,
+    # and module build metadata are ready without compiling unrelated kmods.
     kernel_sync = "Kernel/Configure=$(KERNEL_MAKE) olddefconfig"
+    modules_prepare = "Kernel/CompileModules=$(KERNEL_MAKE) modules_prepare"
     run(
-        [*make_base, kernel_sync, str(modules_stamp), f"-j{jobs}"],
+        [*make_base, kernel_sync, modules_prepare, str(modules_stamp), f"-j{jobs}"],
         cwd=source_dir,
     )
     if not modules_stamp.is_file():

@@ -222,6 +222,7 @@ Package: batctl-full
         self.assertIn(str(linux_dir / ".configured"), commands[1])
         self.assertIn(str(modules_stamp), commands[2])
         self.assertIn("Kernel/Configure=$(KERNEL_MAKE) olddefconfig", commands[2])
+        self.assertIn("Kernel/CompileModules=$(KERNEL_MAKE) modules_prepare", commands[2])
         self.assertFalse(any("target/linux/compile" in command for command in commands))
 
 

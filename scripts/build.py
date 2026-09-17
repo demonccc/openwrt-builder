@@ -14,6 +14,9 @@ globals()["__name__"] = "openwrt_builder_impl"
 exec(compile(_IMPL_PATH.read_text(encoding="utf-8"), str(_IMPL_PATH), "exec"), globals())
 globals()["__name__"] = _ORIGINAL_NAME
 
+# Keep references to implementation functions that are wrapped below.
+_seed_official_kernel_abi_impl = seed_official_kernel_abi
+
 
 def resolve_target_staging_root(source_dir):
     """Resolve STAGING_DIR_ROOT from OpenWrt make metadata and create it if needed."""
@@ -49,6 +52,38 @@ def resolve_target_staging_root(source_dir):
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def refresh_kernel_atomic_headers(linux_dir):
+    """Regenerate checksum-protected atomic headers with the kernel's generator."""
+    linux_dir = Path(linux_dir).resolve()
+    generator = linux_dir / "scripts" / "atomic" / "gen-atomics.sh"
+    if not generator.is_file():
+        raise BuilderError(f"Kernel atomic header generator is missing: {generator}")
+
+    print("Regenerating kernel atomic headers and embedded SHA1 checksums", flush=True)
+    run(["/bin/sh", str(generator.relative_to(linux_dir))], cwd=linux_dir)
+
+    for name in (
+        "atomic-arch-fallback.h",
+        "atomic-instrumented.h",
+        "atomic-long.h",
+    ):
+        header = linux_dir / "include" / "linux" / "atomic" / name
+        if not header.is_file():
+            raise BuilderError(f"Kernel atomic header was not generated: {header}")
+
+        lines = header.read_text(encoding="utf-8").splitlines()
+        if not lines or not re.fullmatch(r"// [0-9a-f]{40}", lines[-1]):
+            raise BuilderError(f"Kernel atomic header is missing its SHA1 footer: {header}")
+
+
+def seed_official_kernel_abi(official_ib, source_dir, settings):
+    """Seed the release ABI, then refresh generated atomic headers before Kbuild."""
+    vermagic = _seed_official_kernel_abi_impl(official_ib, source_dir, settings)
+    linux_dir = resolve_linux_source_directory(source_dir, settings)
+    refresh_kernel_atomic_headers(linux_dir)
+    return vermagic
 
 
 def seed_official_imagebuilder_keys(official_ib, source_dir, settings):

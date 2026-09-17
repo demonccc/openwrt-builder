@@ -828,7 +828,6 @@ def compile_without_dependencies(source_dir, targets, jobs):
     run(["make", *targets, "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)
 
 
-
 def source_target_root(target):
     suffix = "/compile"
     if not target.endswith(suffix):
@@ -840,27 +839,43 @@ def source_target_root(target):
 
 
 def prepare_sdk_source_targets(source_dir, sdk_dir, targets, packages):
-    """Register only explicit patched source roots in the exact-release SDK."""
+    """Register patched base source roots and resolve SDK-native make targets."""
     if not sdk_dir:
         raise BuilderError("SDK source-target preparation requires an SDK")
 
     feeds_conf_default = sdk_dir / "feeds.conf.default"
-    if feeds_conf_default.is_file():
-        feeds_conf = sdk_dir / "feeds.conf"
-        if not feeds_conf.is_file():
-            shutil.copy2(feeds_conf_default, feeds_conf)
-        run(["./scripts/feeds", "update", "base"], cwd=sdk_dir)
-        if packages:
-            run(["./scripts/feeds", "install", *packages], cwd=sdk_dir)
+    if not feeds_conf_default.is_file():
+        raise BuilderError("Official SDK is missing feeds.conf.default")
+    feeds_conf = sdk_dir / "feeds.conf"
+    if not feeds_conf.is_file():
+        shutil.copy2(feeds_conf_default, feeds_conf)
+
+    # The exact-release SDK exposes core OpenWrt sources through its base feed.
+    # Update that feed, replace only the explicitly patched source roots there,
+    # then register those roots under package/feeds/base exactly like AudioWRT
+    # registers its own package sources. Do not recursively install runtime deps.
+    run(["./scripts/feeds", "update", "base"], cwd=sdk_dir)
 
     registered = []
     for target in targets:
         relative = source_target_root(target)
         source = source_dir / relative
-        destination = sdk_dir / relative
+        feed_source = sdk_dir / "feeds" / "base" / relative
         if not source.is_dir():
             raise BuilderError(f"Explicit source target directory is missing: {source}")
-        replace_tree(source, destination)
+        if not feed_source.parent.is_dir():
+            raise BuilderError(
+                f"Official SDK base feed does not contain source parent: {feed_source.parent}"
+            )
+        replace_tree(source, feed_source)
+
+        installed = sdk_dir / "package" / "feeds" / "base" / relative.name
+        if installed.is_symlink() or installed.is_file():
+            installed.unlink()
+        elif installed.exists():
+            shutil.rmtree(installed)
+        installed.parent.mkdir(parents=True, exist_ok=True)
+        installed.symlink_to(feed_source, target_is_directory=True)
         registered.append(str(relative))
 
     config = sdk_dir / ".config"
@@ -875,16 +890,42 @@ def prepare_sdk_source_targets(source_dir, sdk_dir, targets, packages):
     kept.extend(f"CONFIG_PACKAGE_{package}=m" for package in packages)
     config.write_text("\n".join(kept) + "\n", encoding="utf-8")
     run(["make", "defconfig"], cwd=sdk_dir)
-    return registered
+
+    # Source paths in the custom checkout are not necessarily valid top-level
+    # make targets inside an SDK. Resolve the SDK-native target from .packageinfo.
+    records = package_build_metadata(sdk_dir)
+    sdk_targets = []
+    missing = []
+    for package in packages:
+        record = records.get(package)
+        sdk_target = record.get("target") if record else None
+        if not sdk_target:
+            missing.append(package)
+            continue
+        if sdk_target not in sdk_targets:
+            sdk_targets.append(sdk_target)
+    if missing:
+        raise BuilderError(
+            "SDK metadata did not expose build targets for: " + ", ".join(missing)
+        )
+    if not sdk_targets:
+        raise BuilderError("SDK source registration resolved no build targets")
+
+    print(
+        "SDK source targets: " + ", ".join(sdk_targets),
+        flush=True,
+    )
+    return registered, sdk_targets
 
 
 def compile_sdk_source_targets(sdk_dir, targets, jobs):
-    """Compile explicit source roots in the official SDK, with build deps enabled."""
+    """Compile SDK-native source targets with their genuine build dependencies."""
     download_targets = [f"{source_target_root(target)}/download" for target in targets]
     if download_targets:
         run(["make", *download_targets, f"-j{jobs}"], cwd=sdk_dir)
     if targets:
         run(["make", *targets, f"-j{jobs}"], cwd=sdk_dir)
+
 
 def parse_device_kernel_target(make_database, device):
     candidates = []
@@ -1006,6 +1047,7 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs, official_ib=None)
         raise BuilderError(f"Device kernel artifact was not generated: {kernel_target}")
     print(f"Device kernel artifact: {kernel_target}", flush=True)
     return kernel_target
+
 
 def configure_download_cache(source_dir):
     if not CACHE_DIR:
@@ -1295,12 +1337,13 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     official_ib = prepare_official_base_imagebuilder(settings, profile_name)
 
     sdk_registered_targets = []
+    sdk_build_targets = []
     kmod_prerequisites = {}
     if sdk:
-        sdk_registered_targets = prepare_sdk_source_targets(
+        sdk_registered_targets, sdk_build_targets = prepare_sdk_source_targets(
             source_dir, sdk, targets, explicit_packages
         )
-        compile_sdk_source_targets(sdk, targets, jobs)
+        compile_sdk_source_targets(sdk, sdk_build_targets, jobs)
     else:
         compile_kernel_modules(source_dir, settings, jobs, official_ib=official_ib)
         kmod_prerequisites = resolve_external_kmod_prerequisites(
@@ -1369,6 +1412,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         f"SOURCE_BUILD_TARGETS={' '.join(targets)}",
         f"SOURCE_BUILD_PACKAGES={' '.join(explicit_packages)}",
         f"SDK_REGISTERED_SOURCE_ROOTS={' '.join(sdk_registered_targets) if sdk_registered_targets else 'none'}",
+        f"SDK_BUILD_TARGETS={' '.join(sdk_build_targets) if sdk_build_targets else 'none'}",
         "PACKAGE_BUILD_ENV=official-sdk" if sdk else "PACKAGE_BUILD_ENV=source-fallback",
         "KMOD_POLICY=official-base-unless-explicit-source-target",
         f"CUSTOM_APK_PACKAGES={' '.join(copied_custom_packages)}",
@@ -1386,6 +1430,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}",
         "UNCHANGED_PACKAGES=official-base-release",
     ])
+
 
 def build_imagebuilder(profile_name, profile_dir, settings, output):
     include, exclude = parse_packages(profile_dir / "packages")

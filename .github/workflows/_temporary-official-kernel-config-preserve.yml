@@ -1,0 +1,90 @@
+name: Temporary official kernel config preservation fix
+
+on:
+  push:
+    branches:
+      - fix/release-patched-sdk-kmod-abi
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/release-patched-sdk-kmod-abi
+          fetch-depth: 0
+
+      - name: Patch kernel config preservation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build_path = Path('scripts/build.py')
+          boundary_path = Path('tests/test_release_patched_boundary.py')
+          device_path = Path('tests/test_build.py')
+
+          build = build_path.read_text(encoding='utf-8')
+          boundary = boundary_path.read_text(encoding='utf-8')
+          device = device_path.read_text(encoding='utf-8')
+
+          old = '''def seed_official_kernel_abi(official_ib, source_dir, settings):\n    linux_dir = resolve_linux_source_directory(source_dir, settings)\n    official_config = resolve_official_imagebuilder_kernel_config(official_ib, settings)\n    config_text = official_config.read_text(encoding="utf-8")\n    vermagic = resolve_official_imagebuilder_kernel_vermagic(official_ib)\n\n    hashed_lines = sorted(\n        line for line in config_text.splitlines()\n        if re.search(r"=[ym]$", line)\n    )\n    calculated = hashlib.md5(("\\n".join(hashed_lines) + "\\n").encode("utf-8")).hexdigest()\n    if calculated != vermagic:\n        raise BuilderError(\n            f"Official kernel config hash {calculated} does not match official vermagic {vermagic}"\n        )\n\n    for name in (".config", ".config.set", ".config.prev"):\n        (linux_dir / name).write_text(config_text, encoding="utf-8")\n    (linux_dir / ".vermagic").write_text(vermagic + "\\n", encoding="utf-8")\n    print(f"Seeded official kernel ABI: {vermagic}", flush=True)\n    return vermagic\n'''
+          new = '''def seed_official_kernel_abi(official_ib, source_dir, settings):\n    linux_dir = resolve_linux_source_directory(source_dir, settings)\n    official_config = resolve_official_imagebuilder_kernel_config(official_ib, settings)\n    config_text = official_config.read_text(encoding="utf-8")\n    vermagic = resolve_official_imagebuilder_kernel_vermagic(official_ib)\n\n    # The release ImageBuilder contains the effective kernel .config and embeds\n    # the already-computed release vermagic. OpenWrt computes vermagic from\n    # .config.set, which is not shipped in the ImageBuilder, so do not attempt\n    # to reconstruct or validate that hash from the effective .config.\n    (linux_dir / ".config").write_text(config_text, encoding="utf-8")\n    (linux_dir / ".vermagic").write_text(vermagic + "\\n", encoding="utf-8")\n    print(f"Seeded official kernel ABI: {vermagic}", flush=True)\n    return vermagic\n'''
+          if old not in build:
+              raise SystemExit('seed_official_kernel_abi block not found')
+          build = build.replace(old, new, 1)
+
+          old = '''def compile_kernel_modules(source_dir, settings, jobs, official_ib=None):\n    # Avoid target/linux/compile here: its compile target also enters image/compile\n    # and builds image helpers/loaders for the entire target. release-patched only\n    # needs the configured kernel modules before compiling the selected package roots.\n    run(["make", "target/linux/prepare", "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)\n    linux_dir = resolve_linux_source_directory(source_dir, settings)\n    if official_ib is not None:\n        seed_official_kernel_abi(official_ib, source_dir, settings)\n    modules_stamp = linux_dir / ".modules"\n    target_dir = target_linux_directory(source_dir, settings)\n    run(\n        [\n            "make",\n            "-C",\n            str(target_dir.relative_to(source_dir)),\n            f"TOPDIR={source_dir.resolve()}",\n            "TARGET_BUILD=1",\n            str(modules_stamp),\n            f"-j{jobs}",\n        ],\n        cwd=source_dir,\n    )\n'''
+          new = '''def compile_kernel_modules(source_dir, settings, jobs, official_ib=None):\n    # Avoid target/linux/compile here: its compile target also enters image/compile\n    # and builds image helpers/loaders for the entire target. release-patched only\n    # needs the configured kernel modules before compiling the selected package roots.\n    run(["make", "target/linux/prepare", "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)\n    linux_dir = resolve_linux_source_directory(source_dir, settings)\n    modules_stamp = linux_dir / ".modules"\n    configured_stamp = linux_dir / ".configured"\n    target_dir = target_linux_directory(source_dir, settings)\n    make_base = [\n        "make",\n        "-C",\n        str(target_dir.relative_to(source_dir)),\n        f"TOPDIR={source_dir.resolve()}",\n        "TARGET_BUILD=1",\n    ]\n\n    # Let OpenWrt run its normal configure step once so generated headers and\n    # configuration side effects are present. Then replace only the effective\n    # kernel config/vermagic with the exact official release values.\n    run([*make_base, str(configured_stamp), f"-j{jobs}"], cwd=source_dir)\n    if official_ib is not None:\n        seed_official_kernel_abi(official_ib, source_dir, settings)\n\n    # .modules depends on .configured, and that target is FORCE'd by OpenWrt.\n    # Suppress the second Kernel/Configure invocation or it would overwrite the\n    # official .config and regenerate the custom vermagic immediately.\n    run(\n        [*make_base, "Kernel/Configure=", str(modules_stamp), f"-j{jobs}"],\n        cwd=source_dir,\n    )\n'''
+          if old not in build:
+              raise SystemExit('compile_kernel_modules block not found')
+          build = build.replace(old, new, 1)
+
+          old = '''            f"TOPDIR={topdir}",\n            "TARGET_BUILD=1",\n            str(kernel_image_stamp),\n'''
+          new = '''            f"TOPDIR={topdir}",\n            "TARGET_BUILD=1",\n            "Kernel/Configure=",\n            str(kernel_image_stamp),\n'''
+          if old not in build:
+              raise SystemExit('kernel image compile anchor not found')
+          build = build.replace(old, new, 1)
+
+          old = '''        config_text = "CONFIG_FOO=y\\nCONFIG_BAR=m\\n# CONFIG_BAZ is not set\\n"\n        official_config.write_text(config_text, encoding="utf-8")\n        hashed = hashlib.md5("CONFIG_BAR=m\\nCONFIG_FOO=y\\n".encode("utf-8")).hexdigest()\n        (official_ib / "include").mkdir(parents=True)\n        (official_ib / "include" / "version.mk").write_text(\n            f"KERNEL_VERSION:=6.12.94~{hashed}-r1\\n", encoding="utf-8"\n        )\n'''
+          new = '''        config_text = "CONFIG_FOO=y\\nCONFIG_BAR=m\\n# CONFIG_BAZ is not set\\n"\n        official_config.write_text(config_text, encoding="utf-8")\n        vermagic = "f58943ca8e5ad0ff489b492a7983a376"\n        (official_ib / "include").mkdir(parents=True)\n        (official_ib / "include" / "version.mk").write_text(\n            f"KERNEL_VERSION:=6.12.94~{vermagic}-r1\\n", encoding="utf-8"\n        )\n'''
+          if old not in boundary:
+              raise SystemExit('kernel ABI test setup anchor not found')
+          boundary = boundary.replace(old, new, 1)
+          boundary = boundary.replace('        self.assertEqual(result, hashed)\n', '        self.assertEqual(result, vermagic)\n', 1)
+          boundary = boundary.replace('        self.assertEqual((linux_dir / ".config.set").read_text(encoding="utf-8"), config_text)\n', '        self.assertFalse((linux_dir / ".config.set").exists())\n', 1)
+          boundary = boundary.replace('        self.assertEqual((linux_dir / ".config.prev").read_text(encoding="utf-8"), config_text)\n', '        self.assertFalse((linux_dir / ".config.prev").exists())\n', 1)
+          boundary = boundary.replace('        self.assertEqual((linux_dir / ".vermagic").read_text(encoding="utf-8"), hashed + "\\n")\n', '        self.assertEqual((linux_dir / ".vermagic").read_text(encoding="utf-8"), vermagic + "\\n")\n', 1)
+
+          old = '''        self.assertEqual(result, modules_stamp)\n        self.assertIn("target/linux/prepare", commands[0])\n        self.assertIn("NO_DEPS=1", commands[0])\n        self.assertIn(str(modules_stamp), commands[1])\n        self.assertFalse(any("target/linux/compile" in command for command in commands))\n'''
+          new = '''        self.assertEqual(result, modules_stamp)\n        self.assertIn("target/linux/prepare", commands[0])\n        self.assertIn("NO_DEPS=1", commands[0])\n        self.assertIn(str(linux_dir / ".configured"), commands[1])\n        self.assertIn(str(modules_stamp), commands[2])\n        self.assertIn("Kernel/Configure=", commands[2])\n        self.assertFalse(any("target/linux/compile" in command for command in commands))\n'''
+          if old not in boundary:
+              raise SystemExit('kernel modules test anchor not found')
+          boundary = boundary.replace(old, new, 1)
+
+          old = '''        self.assertIn(str(kernel_image_stamp), commands[0])\n        self.assertIn("TARGET_BUILD=1", commands[0])\n'''
+          new = '''        self.assertIn(str(kernel_image_stamp), commands[0])\n        self.assertIn("TARGET_BUILD=1", commands[0])\n        self.assertIn("Kernel/Configure=", commands[0])\n'''
+          if old not in device:
+              raise SystemExit('device kernel test anchor not found')
+          device = device.replace(old, new, 1)
+
+          build_path.write_text(build, encoding='utf-8')
+          boundary_path.write_text(boundary, encoding='utf-8')
+          device_path.write_text(device, encoding='utf-8')
+          PY
+
+          python3 -m py_compile scripts/build.py tests/test_release_patched_boundary.py tests/test_build.py
+          python3 -m unittest discover -s tests -v
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/build.py tests/test_release_patched_boundary.py tests/test_build.py
+          git commit -m 'fix: preserve official kernel config through forced configure steps'
+          git push origin HEAD:fix/release-patched-sdk-kmod-abi

@@ -1,0 +1,59 @@
+name: Temporary modules_prepare fix
+
+on:
+  push:
+    branches:
+      - fix/release-patched-sdk-kmod-abi
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/release-patched-sdk-kmod-abi
+          fetch-depth: 0
+
+      - name: Patch kernel preparation boundary
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build_path = Path('scripts/build.py')
+          boundary_path = Path('tests/test_release_patched_boundary.py')
+
+          build = build_path.read_text(encoding='utf-8')
+          boundary = boundary_path.read_text(encoding='utf-8')
+
+          old = '''    # .modules depends on .configured, and that target is FORCE'd by OpenWrt.\n    # Re-run only the kernel's olddefconfig step against the official effective\n    # .config so generated auto.conf/autoconf headers stay synchronized without\n    # rebuilding OpenWrt's .config.set or changing the release vermagic.\n    kernel_sync = "Kernel/Configure=$(KERNEL_MAKE) olddefconfig"\n    run(\n        [*make_base, kernel_sync, str(modules_stamp), f"-j{jobs}"],\n        cwd=source_dir,\n    )\n'''
+          new = '''    # .modules normally compiles the complete target kernel module set.\n    # release-patched only needs a prepared kernel tree for explicit package\n    # roots such as mac80211. Keep OpenWrt's stamp/dependency flow, but replace\n    # Kernel/CompileModules with modules_prepare so generated headers, scripts,\n    # and module build metadata are ready without compiling unrelated kmods.\n    kernel_sync = "Kernel/Configure=$(KERNEL_MAKE) olddefconfig"\n    modules_prepare = "Kernel/CompileModules=$(KERNEL_MAKE) modules_prepare"\n    run(\n        [*make_base, kernel_sync, modules_prepare, str(modules_stamp), f"-j{jobs}"],\n        cwd=source_dir,\n    )\n'''
+          if old not in build:
+              raise SystemExit('kernel module synchronization block not found')
+          build = build.replace(old, new, 1)
+
+          old = '''        self.assertIn(str(modules_stamp), commands[2])\n        self.assertIn("Kernel/Configure=$(KERNEL_MAKE) olddefconfig", commands[2])\n        self.assertFalse(any("target/linux/compile" in command for command in commands))\n'''
+          new = '''        self.assertIn(str(modules_stamp), commands[2])\n        self.assertIn("Kernel/Configure=$(KERNEL_MAKE) olddefconfig", commands[2])\n        self.assertIn("Kernel/CompileModules=$(KERNEL_MAKE) modules_prepare", commands[2])\n        self.assertFalse(any("target/linux/compile" in command for command in commands))\n'''
+          if old not in boundary:
+              raise SystemExit('kernel modules test block not found')
+          boundary = boundary.replace(old, new, 1)
+
+          build_path.write_text(build, encoding='utf-8')
+          boundary_path.write_text(boundary, encoding='utf-8')
+          PY
+
+          python3 -m py_compile scripts/build.py tests/test_release_patched_boundary.py
+          python3 -m unittest discover -s tests -v
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/build.py tests/test_release_patched_boundary.py
+          git commit -m 'fix: prepare kernel modules without compiling unrelated kmods'
+          git push origin HEAD:fix/release-patched-sdk-kmod-abi

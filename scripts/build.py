@@ -54,6 +54,15 @@ def resolve_target_staging_root(source_dir):
     return root
 
 
+def ensure_target_staging_include(source_dir):
+    """Create the target staging include path expected by kernel build flags."""
+    target_staging = resolve_target_staging_root(source_dir).parent
+    include_dir = target_staging / "usr" / "include"
+    include_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Prepared target staging include directory: {include_dir}", flush=True)
+    return include_dir
+
+
 def clear_official_initramfs_source(linux_dir):
     """Remove absolute build-host initramfs paths inherited from the official ImageBuilder."""
     config = Path(linux_dir) / ".config"
@@ -105,6 +114,7 @@ def seed_official_kernel_abi(official_ib, source_dir, settings):
     """Seed the release ABI while removing build-host-only state from the official config."""
     vermagic = _seed_official_kernel_abi_impl(official_ib, source_dir, settings)
     linux_dir = resolve_linux_source_directory(source_dir, settings)
+    ensure_target_staging_include(source_dir)
     clear_official_initramfs_source(linux_dir)
     refresh_kernel_atomic_headers(linux_dir)
     return vermagic

@@ -128,7 +128,7 @@ other: value
         self.assertEqual(result, kernel_target)
         self.assertIn(str(kernel_image_stamp), commands[0])
         self.assertIn("TARGET_BUILD=1", commands[0])
-        self.assertIn("Kernel/Configure=$(KERNEL_MAKE) olddefconfig", commands[0])
+        self.assertNotIn("Kernel/Configure=$(KERNEL_MAKE) olddefconfig", commands[0])
         self.assertIn("kernel_prepare", commands[1])
         self.assertIn(str(kernel_target), commands[2])
 

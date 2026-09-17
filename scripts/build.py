@@ -828,6 +828,64 @@ def compile_without_dependencies(source_dir, targets, jobs):
     run(["make", *targets, "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)
 
 
+
+def source_target_root(target):
+    suffix = "/compile"
+    if not target.endswith(suffix):
+        raise BuilderError(f"Source build target must end in /compile: {target}")
+    root = Path(target[:-len(suffix)])
+    if root.is_absolute() or ".." in root.parts:
+        raise BuilderError(f"Source build target must stay inside the OpenWrt tree: {target}")
+    return root
+
+
+def prepare_sdk_source_targets(source_dir, sdk_dir, targets, packages):
+    """Register only explicit patched source roots in the exact-release SDK."""
+    if not sdk_dir:
+        raise BuilderError("SDK source-target preparation requires an SDK")
+
+    feeds_conf_default = sdk_dir / "feeds.conf.default"
+    if feeds_conf_default.is_file():
+        feeds_conf = sdk_dir / "feeds.conf"
+        if not feeds_conf.is_file():
+            shutil.copy2(feeds_conf_default, feeds_conf)
+        run(["./scripts/feeds", "update", "base"], cwd=sdk_dir)
+        if packages:
+            run(["./scripts/feeds", "install", *packages], cwd=sdk_dir)
+
+    registered = []
+    for target in targets:
+        relative = source_target_root(target)
+        source = source_dir / relative
+        destination = sdk_dir / relative
+        if not source.is_dir():
+            raise BuilderError(f"Explicit source target directory is missing: {source}")
+        replace_tree(source, destination)
+        registered.append(str(relative))
+
+    config = sdk_dir / ".config"
+    existing = config.read_text(encoding="utf-8") if config.is_file() else ""
+    package_set = set(packages)
+    kept = []
+    for raw in existing.splitlines():
+        match = re.match(r"(?:# )?CONFIG_PACKAGE_([^= ]+)(?:=| is not set)", raw)
+        if match and match.group(1) in package_set:
+            continue
+        kept.append(raw)
+    kept.extend(f"CONFIG_PACKAGE_{package}=m" for package in packages)
+    config.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    run(["make", "defconfig"], cwd=sdk_dir)
+    return registered
+
+
+def compile_sdk_source_targets(sdk_dir, targets, jobs):
+    """Compile explicit source roots in the official SDK, with build deps enabled."""
+    download_targets = [f"{source_target_root(target)}/download" for target in targets]
+    if download_targets:
+        run(["make", *download_targets, f"-j{jobs}"], cwd=sdk_dir)
+    if targets:
+        run(["make", *targets, f"-j{jobs}"], cwd=sdk_dir)
+
 def parse_device_kernel_target(make_database, device):
     candidates = []
     prefix = f"{device}-"
@@ -857,7 +915,26 @@ def resolve_kernel_image_stamp(kernel_target):
     return candidates[0]
 
 
-def prepare_device_kernel_artifact(source_dir, settings, jobs):
+def prepare_device_kernel_artifact(source_dir, settings, jobs, official_ib=None):
+    if official_ib is not None:
+        run(["make", "target/linux/prepare", "NO_DEPS=1", f"-j{jobs}"], cwd=source_dir)
+        linux_dir = resolve_linux_source_directory(source_dir, settings)
+        target_dir = target_linux_directory(source_dir, settings)
+        configured_stamp = linux_dir / ".configured"
+        run(
+            [
+                "make",
+                "-C",
+                str(target_dir.relative_to(source_dir)),
+                f"TOPDIR={source_dir.resolve()}",
+                "TARGET_BUILD=1",
+                str(configured_stamp),
+                f"-j{jobs}",
+            ],
+            cwd=source_dir,
+        )
+        seed_official_kernel_abi(official_ib, source_dir, settings)
+
     image_dir = target_image_directory(source_dir, settings)
     target_dir = image_dir.parent
     topdir = source_dir.resolve()
@@ -887,22 +964,17 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs):
     kernel_target = parse_device_kernel_target(database.stdout, settings["DEVICE"])
     kernel_image_stamp = resolve_kernel_image_stamp(kernel_target)
 
-    # Kernel/CompileImage materializes KDIR/vmlinux. base-files is prepared before
-    # this point so the optional initramfs path has a valid target root and cannot
-    # leave a misleading successful .image stamp after a missing-root failure.
-    run(
-        [
-            "make",
-            "-C",
-            relative_target_dir,
-            f"TOPDIR={topdir}",
-            "TARGET_BUILD=1",
-            "Kernel/Configure=$(KERNEL_MAKE) olddefconfig",
-            str(kernel_image_stamp),
-            f"-j{jobs}",
-        ],
-        cwd=source_dir,
-    )
+    image_command = [
+        "make",
+        "-C",
+        relative_target_dir,
+        f"TOPDIR={topdir}",
+        "TARGET_BUILD=1",
+    ]
+    if official_ib is not None:
+        image_command.append("Kernel/Configure=$(KERNEL_MAKE) olddefconfig")
+    image_command.extend([str(kernel_image_stamp), f"-j{jobs}"])
+    run(image_command, cwd=source_dir)
     if not kernel_image_stamp.is_file():
         raise BuilderError(f"Generic kernel image stamp was not generated: {kernel_image_stamp}")
 
@@ -934,7 +1006,6 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs):
         raise BuilderError(f"Device kernel artifact was not generated: {kernel_target}")
     print(f"Device kernel artifact: {kernel_target}", flush=True)
     return kernel_target
-
 
 def configure_download_cache(source_dir):
     if not CACHE_DIR:
@@ -1138,10 +1209,11 @@ def seed_official_imagebuilder_versions(official_ib, source_dir, settings):
     wanted = {
         "BASE_FILES_VERSION": "base-files.version",
         "LIBC_VERSION": "libc.version",
+        "KERNEL_VERSION": "kernel.version",
     }
     values = {}
     for raw in version_mk.read_text(encoding="utf-8").splitlines():
-        match = re.fullmatch(r"(BASE_FILES_VERSION|LIBC_VERSION):=(.+)", raw.strip())
+        match = re.fullmatch(r"(BASE_FILES_VERSION|LIBC_VERSION|KERNEL_VERSION):=(.+)", raw.strip())
         if match:
             values[match.group(1)] = match.group(2).strip()
 
@@ -1192,13 +1264,7 @@ def copy_local_apks(source_dir, imagebuilder_dir, allowed_packages):
 
 
 def build_release_patched(profile_name, profile_dir, settings, source_ref, output, jobs):
-    """Build only the explicitly patched source boundary.
-
-    Firmware package selection is intentionally separate from source compilation:
-    packages selected in .config (including unrelated kmod-* packages) remain
-    official BASE_REF binaries unless their source root is listed in
-    source-build-targets. The custom kernel package itself is always local.
-    """
+    """Build explicit patched package roots against the exact BASE_REF SDK."""
     include, exclude = parse_packages(profile_dir / "packages")
     targets = parse_simple_list(profile_dir / "source-build-targets")
     source_dir, ref, feeds, base_commit = prepare_source(
@@ -1216,13 +1282,9 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     files = copy_files(profile_dir, source_dir / "files")
     write_config(source_dir, settings, include, exclude, imagebuilder=True)
     run(["make", "defconfig"], cwd=source_dir)
-
-    # This is the complete local package-source boundary for release-patched.
-    # Do not derive additional build roots from CONFIG_PACKAGE_kmod-* selections.
     explicit_packages = resolve_selected_packages_for_targets(source_dir, targets)
-    kmod_prerequisites = resolve_external_kmod_prerequisites(
-        source_dir, explicit_packages, targets
-    )
+    if not explicit_packages:
+        raise BuilderError("release-patched source-build-targets selected no packages")
 
     if sdk:
         install_sdk_state(source_dir, sdk)
@@ -1230,27 +1292,31 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         run(["make", "tools/install", "toolchain/install", f"-j{jobs}"], cwd=source_dir)
     download_sources(source_dir, jobs, sdk)
 
-    # Use the exact official release kernel config/vermagic so unchanged BASE_REF
-    # kmods remain ABI-compatible. The custom tree only changes explicit package
-    # roots and device data, not the kernel ABI contract.
     official_ib = prepare_official_base_imagebuilder(settings, profile_name)
 
-    # The target kernel/module state is required for the patched package roots,
-    # but unrelated selected kmods are never compiled as package source roots.
-    compile_kernel_modules(source_dir, settings, jobs, official_ib=official_ib)
-    # External in-tree kmods required by the patched package roots must be
-    # staged before package dependency validation. Build only those prerequisite
-    # subpackages; they remain official BASE_REF APKs in the final ImageBuilder.
-    compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)
-    compile_without_dependencies(source_dir, targets, jobs)
+    sdk_registered_targets = []
+    kmod_prerequisites = {}
+    if sdk:
+        sdk_registered_targets = prepare_sdk_source_targets(
+            source_dir, sdk, targets, explicit_packages
+        )
+        compile_sdk_source_targets(sdk, targets, jobs)
+    else:
+        compile_kernel_modules(source_dir, settings, jobs, official_ib=official_ib)
+        kmod_prerequisites = resolve_external_kmod_prerequisites(
+            source_dir, explicit_packages, targets
+        )
+        compile_package_prerequisites(source_dir, kmod_prerequisites, jobs)
+        compile_without_dependencies(source_dir, targets, jobs)
 
-    # base-files and libc are unchanged userspace. Seed the exact official
-    # BASE_REF APKs instead of rebuilding them from the patched tree.
     official_base_files = seed_official_imagebuilder_package(
         official_ib, source_dir, settings, "base-files"
     )
     official_libc = seed_official_imagebuilder_package(
         official_ib, source_dir, settings, "libc"
+    )
+    official_kernel = seed_official_imagebuilder_package(
+        official_ib, source_dir, settings, "kernel"
     )
     official_keys = seed_official_imagebuilder_keys(
         official_ib, source_dir, settings
@@ -1259,16 +1325,20 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         official_ib, source_dir, settings
     )
 
-    device_kernel = prepare_device_kernel_artifact(source_dir, settings, jobs)
+    device_kernel = prepare_device_kernel_artifact(
+        source_dir, settings, jobs, official_ib=official_ib
+    )
     compile_without_dependencies(source_dir, ["target/imagebuilder/compile"], jobs)
 
     imagebuilder_dir = generated_imagebuilder(source_dir, settings)
     pin_release_repositories(settings, imagebuilder_dir, profile_name, official_ib=official_ib)
 
-    custom_packages = list(dict.fromkeys(["kernel", *explicit_packages]))
-    copied_custom_packages = copy_local_apks(source_dir, imagebuilder_dir, custom_packages)
+    package_build_root = sdk if sdk else source_dir
+    copied_custom_packages = copy_local_apks(
+        package_build_root, imagebuilder_dir, explicit_packages
+    )
     copied_official_packages = copy_local_apks(
-        source_dir, imagebuilder_dir, ["base-files", "libc"]
+        source_dir, imagebuilder_dir, ["base-files", "libc", "kernel"]
     )
 
     prepare_output(output)
@@ -1298,19 +1368,19 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
         f"HOST_TOOLS_REASON={tools_reason}",
         f"SOURCE_BUILD_TARGETS={' '.join(targets)}",
         f"SOURCE_BUILD_PACKAGES={' '.join(explicit_packages)}",
-        "KMOD_BUILD_PREREQUISITES=" + " ".join(
-            f"{target}={','.join(packages)}"
-            for target, packages in kmod_prerequisites.items()
-        ),
+        f"SDK_REGISTERED_SOURCE_ROOTS={' '.join(sdk_registered_targets) if sdk_registered_targets else 'none'}",
+        "PACKAGE_BUILD_ENV=official-sdk" if sdk else "PACKAGE_BUILD_ENV=source-fallback",
         "KMOD_POLICY=official-base-unless-explicit-source-target",
         f"CUSTOM_APK_PACKAGES={' '.join(copied_custom_packages)}",
         f"OFFICIAL_SEEDED_PACKAGES={' '.join(copied_official_packages)}",
         f"DEVICE_KERNEL_ARTIFACT={device_kernel.name}",
         f"OFFICIAL_BASE_FILES_APK={official_base_files.name}",
         f"OFFICIAL_LIBC_APK={official_libc.name}",
+        f"OFFICIAL_KERNEL_APK={official_kernel.name}",
         f"OFFICIAL_APK_KEYS={official_keys}",
         f"OFFICIAL_BASE_FILES_VERSION={official_versions['BASE_FILES_VERSION']}",
         f"OFFICIAL_LIBC_VERSION={official_versions['LIBC_VERSION']}",
+        f"OFFICIAL_KERNEL_VERSION={official_versions['KERNEL_VERSION']}",
         f"INCLUDE_PACKAGES={' '.join(include)}",
         f"EXCLUDE_PACKAGES={' '.join(exclude)}",
         f"FEED_NAMES={' '.join(feeds) if feeds else 'all'}",

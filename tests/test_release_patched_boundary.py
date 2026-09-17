@@ -342,7 +342,7 @@ Package: batctl-full
         )
         (official_ib / "include").mkdir(parents=True)
         (official_ib / "include" / "version.mk").write_text(
-            "BASE_FILES_VERSION:=1666-r1\nLIBC_VERSION:=1.2.5-r4\n",
+            "BASE_FILES_VERSION:=1666-r1\nLIBC_VERSION:=1.2.5-r4\nKERNEL_VERSION:=6.12.94~f58943ca8e5ad0ff489b492a7983a376-r1\n",
             encoding="utf-8",
         )
 
@@ -350,6 +350,7 @@ Package: batctl-full
 
         self.assertEqual(versions["BASE_FILES_VERSION"], "1666-r1")
         self.assertEqual(versions["LIBC_VERSION"], "1.2.5-r4")
+        self.assertEqual(versions["KERNEL_VERSION"], "6.12.94~f58943ca8e5ad0ff489b492a7983a376-r1")
         self.assertEqual(
             (source / "staging_dir" / "target-mips_24kc_musl" / "base-files.version").read_text(encoding="utf-8"),
             "1666-r1\n",
@@ -357,6 +358,10 @@ Package: batctl-full
         self.assertEqual(
             (source / "staging_dir" / "target-mips_24kc_musl" / "libc.version").read_text(encoding="utf-8"),
             "1.2.5-r4\n",
+        )
+        self.assertEqual(
+            (source / "staging_dir" / "target-mips_24kc_musl" / "kernel.version").read_text(encoding="utf-8"),
+            "6.12.94~f58943ca8e5ad0ff489b492a7983a376-r1\n",
         )
 
 

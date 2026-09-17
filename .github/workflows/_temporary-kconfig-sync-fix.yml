@@ -1,0 +1,74 @@
+name: Temporary kernel config sync fix
+
+on:
+  push:
+    branches:
+      - fix/release-patched-sdk-kmod-abi
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/release-patched-sdk-kmod-abi
+          fetch-depth: 0
+
+      - name: Patch kernel Kconfig synchronization
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build_path = Path('scripts/build.py')
+          boundary_path = Path('tests/test_release_patched_boundary.py')
+          device_path = Path('tests/test_build.py')
+
+          build = build_path.read_text(encoding='utf-8')
+          boundary = boundary_path.read_text(encoding='utf-8')
+          device = device_path.read_text(encoding='utf-8')
+
+          old = '''    # .modules depends on .configured, and that target is FORCE'd by OpenWrt.\n    # Suppress the second Kernel/Configure invocation or it would overwrite the\n    # official .config and regenerate the custom vermagic immediately.\n    run(\n        [*make_base, "Kernel/Configure=", str(modules_stamp), f"-j{jobs}"],\n        cwd=source_dir,\n    )\n'''
+          new = '''    # .modules depends on .configured, and that target is FORCE'd by OpenWrt.\n    # Re-run only the kernel's olddefconfig step against the official effective\n    # .config so generated auto.conf/autoconf headers stay synchronized without\n    # rebuilding OpenWrt's .config.set or changing the release vermagic.\n    kernel_sync = "Kernel/Configure=$(KERNEL_MAKE) olddefconfig"\n    run(\n        [*make_base, kernel_sync, str(modules_stamp), f"-j{jobs}"],\n        cwd=source_dir,\n    )\n'''
+          if old not in build:
+              raise SystemExit('module configure override anchor not found')
+          build = build.replace(old, new, 1)
+
+          old = '''            "TARGET_BUILD=1",\n            "Kernel/Configure=",\n            str(kernel_image_stamp),\n'''
+          new = '''            "TARGET_BUILD=1",\n            "Kernel/Configure=$(KERNEL_MAKE) olddefconfig",\n            str(kernel_image_stamp),\n'''
+          if old not in build:
+              raise SystemExit('image configure override anchor not found')
+          build = build.replace(old, new, 1)
+
+          old = '''        self.assertIn(str(modules_stamp), commands[2])\n        self.assertIn("Kernel/Configure=", commands[2])\n'''
+          new = '''        self.assertIn(str(modules_stamp), commands[2])\n        self.assertIn("Kernel/Configure=$(KERNEL_MAKE) olddefconfig", commands[2])\n'''
+          if old not in boundary:
+              raise SystemExit('module test anchor not found')
+          boundary = boundary.replace(old, new, 1)
+
+          old = '''        self.assertIn("TARGET_BUILD=1", commands[0])\n        self.assertIn("Kernel/Configure=", commands[0])\n'''
+          new = '''        self.assertIn("TARGET_BUILD=1", commands[0])\n        self.assertIn("Kernel/Configure=$(KERNEL_MAKE) olddefconfig", commands[0])\n'''
+          if old not in device:
+              raise SystemExit('device image test anchor not found')
+          device = device.replace(old, new, 1)
+
+          build_path.write_text(build, encoding='utf-8')
+          boundary_path.write_text(boundary, encoding='utf-8')
+          device_path.write_text(device, encoding='utf-8')
+          PY
+
+          python3 -m py_compile scripts/build.py tests/test_release_patched_boundary.py tests/test_build.py
+          python3 -m unittest discover -s tests -v
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/build.py tests/test_release_patched_boundary.py tests/test_build.py
+          git commit -m 'fix: sync official kernel config before module build'
+          git push origin HEAD:fix/release-patched-sdk-kmod-abi

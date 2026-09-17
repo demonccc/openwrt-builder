@@ -806,10 +806,12 @@ def compile_kernel_modules(source_dir, settings, jobs, official_ib=None):
         seed_official_kernel_abi(official_ib, source_dir, settings)
 
     # .modules depends on .configured, and that target is FORCE'd by OpenWrt.
-    # Suppress the second Kernel/Configure invocation or it would overwrite the
-    # official .config and regenerate the custom vermagic immediately.
+    # Re-run only the kernel's olddefconfig step against the official effective
+    # .config so generated auto.conf/autoconf headers stay synchronized without
+    # rebuilding OpenWrt's .config.set or changing the release vermagic.
+    kernel_sync = "Kernel/Configure=$(KERNEL_MAKE) olddefconfig"
     run(
-        [*make_base, "Kernel/Configure=", str(modules_stamp), f"-j{jobs}"],
+        [*make_base, kernel_sync, str(modules_stamp), f"-j{jobs}"],
         cwd=source_dir,
     )
     if not modules_stamp.is_file():
@@ -893,7 +895,7 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs):
             relative_target_dir,
             f"TOPDIR={topdir}",
             "TARGET_BUILD=1",
-            "Kernel/Configure=",
+            "Kernel/Configure=$(KERNEL_MAKE) olddefconfig",
             str(kernel_image_stamp),
             f"-j{jobs}",
         ],

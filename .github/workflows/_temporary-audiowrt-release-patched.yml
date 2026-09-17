@@ -38,7 +38,10 @@ jobs:
           fi
 
       - name: Full Archer release-patched build
+        id: full_build
+        continue-on-error: true
         run: |
+          set -o pipefail
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -e HOME=/tmp \
@@ -48,9 +51,22 @@ jobs:
               --profile archer-a9-v6-25.12.5 \
               --output artifact \
               --jobs 4 \
-              --verbosity normal
+              --verbosity normal 2>&1 | tee .github/_last_archer_build.log
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit failing log
+        if: steps.full_build.outputs.status != '0'
+        run: |
+          tail -n 1200 .github/_last_archer_build.log > .github/_last_archer_build.tail.log
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/_last_archer_build.tail.log
+          git commit -m 'chore: capture Archer validation failure'
+          git push origin HEAD:fix/release-patched-sdk-kmod-abi
+          exit 1
 
       - name: Commit verified fix
+        if: steps.full_build.outputs.status == '0'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

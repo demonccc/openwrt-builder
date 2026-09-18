@@ -143,12 +143,29 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs, official_ib=None)
             f"Official ImageBuilder is missing bundled host libraries: {official_host_lib}"
         )
     seeded_host_lib.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(
-        official_host_lib,
-        seeded_host_lib,
-        dirs_exist_ok=True,
-        symlinks=True,
-    )
+
+    # merge the ImageBuilder host runtime into the prepared source tree.
+    # shutil.copytree(..., symlinks=True, dirs_exist_ok=True) still fails when
+    # a destination symlink already exists (for example libfakeroot.so), so
+    # replace conflicting non-directory entries first and then merge.
+    for source_entry in official_host_lib.rglob("*"):
+        relative_entry = source_entry.relative_to(official_host_lib)
+        destination_entry = seeded_host_lib / relative_entry
+
+        if source_entry.is_dir() and not source_entry.is_symlink():
+            destination_entry.mkdir(parents=True, exist_ok=True)
+            continue
+
+        destination_entry.parent.mkdir(parents=True, exist_ok=True)
+        if destination_entry.is_symlink() or destination_entry.is_file():
+            destination_entry.unlink()
+        elif destination_entry.exists():
+            shutil.rmtree(destination_entry)
+
+        if source_entry.is_symlink():
+            destination_entry.symlink_to(source_entry.readlink())
+        else:
+            shutil.copy2(source_entry, destination_entry)
 
     print(
         f"Seeded exact-release vmlinux from official ImageBuilder: {official_vmlinux}",

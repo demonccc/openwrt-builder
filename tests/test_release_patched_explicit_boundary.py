@@ -26,15 +26,29 @@ class ReleasePatchedExplicitBoundaryTests(unittest.TestCase):
 
     def test_release_patched_compiles_only_declared_package_roots(self):
         source = inspect.getsource(BUILDER.build_release_patched)
-        self.assertIn("explicit_target_packages", source)
-        self.assertIn("compile_package_prerequisites(source_dir, explicit_target_packages, jobs)", source)
-        self.assertIn('custom_packages = list(dict.fromkeys(["kernel", *explicit_packages]))', source)
+        self.assertNotIn("CONFIG_ALL_KMODS=y", source)
+        self.assertIn("compile_without_dependencies(source_dir, targets, jobs)", source)
+        self.assertIn("official_ib=official_ib", source)
+        self.assertIn("package_build_root = sdk if sdk else source_dir", source)
 
     def test_release_patched_never_names_unrelated_package_targets(self):
         source = inspect.getsource(BUILDER.build_release_patched)
         self.assertNotIn("batman-adv/compile", source)
         self.assertNotIn("gpio-button-hotplug/compile", source)
         self.assertNotIn("package/kernel/linux/compile", source)
+
+    def test_sdk_source_compile_keeps_dependencies_enabled(self):
+        source = inspect.getsource(BUILDER.compile_sdk_source_targets)
+        self.assertNotIn("NO_DEPS=1", source)
+        self.assertIn("source_target_root", source)
+
+    def test_release_patched_uses_sdk_for_explicit_packages(self):
+        source = inspect.getsource(BUILDER.build_release_patched)
+        self.assertIn("prepare_sdk_source_targets", source)
+        self.assertIn("compile_sdk_source_targets", source)
+        self.assertIn("package_build_root = sdk if sdk else source_dir", source)
+        self.assertIn('["base-files", "libc", "kernel"]', source)
+
 
 
 if __name__ == "__main__":

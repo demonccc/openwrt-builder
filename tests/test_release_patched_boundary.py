@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import tempfile
 import unittest
@@ -147,6 +148,47 @@ Package: batctl-full
         self.assertEqual(result.name, "libc-1.2.5-r4.apk")
         self.assertEqual(result.read_text(encoding="utf-8"), "libc")
 
+    def test_official_kernel_abi_seeds_exact_release_config_and_vermagic(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        official_ib = root / "official"
+        source = root / "source"
+        official_config = (
+            official_ib
+            / "build_dir"
+            / "target-mips_24kc_musl"
+            / "linux-ath79_generic"
+            / "linux-6.12.94"
+            / ".config"
+        )
+        official_config.parent.mkdir(parents=True)
+        config_text = "CONFIG_FOO=y\nCONFIG_BAR=m\n# CONFIG_BAZ is not set\n"
+        official_config.write_text(config_text, encoding="utf-8")
+        vermagic = "f58943ca8e5ad0ff489b492a7983a376"
+        (official_ib / "include").mkdir(parents=True)
+        (official_ib / "include" / "version.mk").write_text(
+            f"KERNEL_VERSION:=6.12.94~{vermagic}-r1\n", encoding="utf-8"
+        )
+        linux_dir = (
+            source
+            / "build_dir"
+            / "target-mips_24kc_musl"
+            / "linux-ath79_generic"
+            / "linux-6.12.94"
+        )
+        linux_dir.mkdir(parents=True)
+
+        result = BUILDER.seed_official_kernel_abi(
+            official_ib, source, {"TARGET": "ath79", "SUBTARGET": "generic"}
+        )
+
+        self.assertEqual(result, vermagic)
+        self.assertEqual((linux_dir / ".config").read_text(encoding="utf-8"), config_text)
+        self.assertFalse((linux_dir / ".config.set").exists())
+        self.assertFalse((linux_dir / ".config.prev").exists())
+        self.assertEqual((linux_dir / ".vermagic").read_text(encoding="utf-8"), vermagic + "\n")
+
     def test_kernel_modules_build_uses_modules_stamp_not_target_compile(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -177,7 +219,10 @@ Package: batctl-full
         self.assertEqual(result, modules_stamp)
         self.assertIn("target/linux/prepare", commands[0])
         self.assertIn("NO_DEPS=1", commands[0])
-        self.assertIn(str(modules_stamp), commands[1])
+        self.assertIn(str(linux_dir / ".configured"), commands[1])
+        self.assertIn(str(modules_stamp), commands[2])
+        self.assertIn("Kernel/Configure=$(KERNEL_MAKE) olddefconfig", commands[2])
+        self.assertIn("Kernel/CompileModules=$(KERNEL_MAKE) modules_prepare", commands[2])
         self.assertFalse(any("target/linux/compile" in command for command in commands))
 
 
@@ -297,7 +342,7 @@ Package: batctl-full
         )
         (official_ib / "include").mkdir(parents=True)
         (official_ib / "include" / "version.mk").write_text(
-            "BASE_FILES_VERSION:=1666-r1\nLIBC_VERSION:=1.2.5-r4\n",
+            "BASE_FILES_VERSION:=1666-r1\nLIBC_VERSION:=1.2.5-r4\nKERNEL_VERSION:=6.12.94~f58943ca8e5ad0ff489b492a7983a376-r1\n",
             encoding="utf-8",
         )
 
@@ -305,6 +350,7 @@ Package: batctl-full
 
         self.assertEqual(versions["BASE_FILES_VERSION"], "1666-r1")
         self.assertEqual(versions["LIBC_VERSION"], "1.2.5-r4")
+        self.assertEqual(versions["KERNEL_VERSION"], "6.12.94~f58943ca8e5ad0ff489b492a7983a376-r1")
         self.assertEqual(
             (source / "staging_dir" / "target-mips_24kc_musl" / "base-files.version").read_text(encoding="utf-8"),
             "1666-r1\n",
@@ -312,6 +358,10 @@ Package: batctl-full
         self.assertEqual(
             (source / "staging_dir" / "target-mips_24kc_musl" / "libc.version").read_text(encoding="utf-8"),
             "1.2.5-r4\n",
+        )
+        self.assertEqual(
+            (source / "staging_dir" / "target-mips_24kc_musl" / "kernel.version").read_text(encoding="utf-8"),
+            "6.12.94~f58943ca8e5ad0ff489b492a7983a376-r1\n",
         )
 
 

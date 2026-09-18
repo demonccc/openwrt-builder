@@ -103,8 +103,26 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs, official_ib=None)
     seeded_vmlinux = source_kernel_dir / "vmlinux"
     seeded_vmlinux.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(official_vmlinux, seeded_vmlinux)
+
+    # target/linux/prepare lays out the kernel source tree but does not build
+    # the in-tree dtc binary used by OpenWrt's image/DTS rules. Reuse the exact
+    # release dtc from the official ImageBuilder instead of compiling host/kernel
+    # tooling from source.
+    official_dtc = official_kernel_dir / "scripts" / "dtc" / "dtc"
+    if not official_dtc.is_file():
+        raise BuilderError(
+            f"Official ImageBuilder kernel tree is missing dtc: {official_dtc}"
+        )
+    seeded_dtc = source_kernel_dir / "scripts" / "dtc" / "dtc"
+    seeded_dtc.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(official_dtc, seeded_dtc)
+
     print(
         f"Seeded exact-release vmlinux from official ImageBuilder: {official_vmlinux}",
+        flush=True,
+    )
+    print(
+        f"Seeded exact-release dtc from official ImageBuilder: {official_dtc}",
         flush=True,
     )
 

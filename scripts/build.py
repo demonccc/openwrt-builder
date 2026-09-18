@@ -34,25 +34,27 @@ def _relative_to_build_dir(path, tree_root):
         raise BuilderError(f"Path is outside OpenWrt build_dir: {path}") from exc
 
 
-def _official_kernel_build_dir(official_ib, source_kernel_dir, source_dir):
-    """Resolve the matching exact-release kernel build directory in ImageBuilder."""
-    relative = _relative_to_build_dir(source_kernel_dir, source_dir)
+def _official_build_dir_peer(official_ib, source_path, source_dir, marker):
+    """Resolve the exact-release ImageBuilder peer for an OpenWrt build_dir path."""
+    relative = _relative_to_build_dir(source_path, source_dir)
     exact = Path(official_ib) / "build_dir" / relative
-    if (exact / "vmlinux").is_file():
+    if (exact / marker).is_file():
         return exact
 
-    # The exact release should normally have the same target triplet. Keep a
-    # deterministic fallback for ImageBuilders whose extracted target prefix
-    # differs while the linux-<target>_<subtarget> directory is identical.
+    # Normally exact release source and ImageBuilder use the same target triplet.
+    # Keep one deterministic fallback for extracted archives whose target prefix
+    # differs while the remaining build_dir layout is identical.
+    relative_parts = relative.parts
+    suffix = Path(*relative_parts[1:]) if len(relative_parts) > 1 else Path(source_path).name
     candidates = [
         path
-        for path in (Path(official_ib) / "build_dir").glob(f"target-*/{Path(source_kernel_dir).name}")
-        if (path / "vmlinux").is_file()
+        for path in (Path(official_ib) / "build_dir").glob(f"target-*/{suffix}")
+        if (path / marker).is_file()
     ]
     if len(candidates) != 1:
         raise BuilderError(
-            "Could not resolve one official ImageBuilder kernel directory for "
-            f"{Path(source_kernel_dir).name}; found {len(candidates)}"
+            "Could not resolve one official ImageBuilder peer for "
+            f"{source_path} containing {marker}; found {len(candidates)}"
         )
     return candidates[0]
 
@@ -95,25 +97,31 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs, official_ib=None)
         raise BuilderError(f"Could not inspect OpenWrt image make database{suffix}")
 
     kernel_target = parse_device_kernel_target(database.stdout, settings["DEVICE"])
+
+    # OpenWrt deliberately keeps these as two different directories:
+    # KERNEL_BUILD_DIR (e.g. linux-ath79_generic) contains vmlinux and device
+    # artifacts, while LINUX_DIR (e.g. linux-ath79_generic/linux-6.12.94)
+    # contains the prepared kernel source tree and scripts/dtc/dtc. ImageBuilder
+    # preserves the same split, so resolve each peer independently.
     source_kernel_dir = kernel_target.parent
-    official_kernel_dir = _official_kernel_build_dir(
-        official_ib, source_kernel_dir, source_dir
+    source_linux_dir = resolve_linux_source_directory(source_dir, settings)
+
+    official_kernel_dir = _official_build_dir_peer(
+        official_ib, source_kernel_dir, source_dir, "vmlinux"
     )
+    official_linux_dir = _official_build_dir_peer(
+        official_ib, source_linux_dir, source_dir, "scripts/dtc/dtc"
+    )
+
     official_vmlinux = official_kernel_dir / "vmlinux"
     seeded_vmlinux = source_kernel_dir / "vmlinux"
     seeded_vmlinux.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(official_vmlinux, seeded_vmlinux)
 
-    # target/linux/prepare lays out the kernel source tree but does not build
-    # the in-tree dtc binary used by OpenWrt's image/DTS rules. Reuse the exact
-    # release dtc from the official ImageBuilder instead of compiling host/kernel
-    # tooling from source.
-    official_dtc = official_kernel_dir / "scripts" / "dtc" / "dtc"
-    if not official_dtc.is_file():
-        raise BuilderError(
-            f"Official ImageBuilder kernel tree is missing dtc: {official_dtc}"
-        )
-    seeded_dtc = source_kernel_dir / "scripts" / "dtc" / "dtc"
+    # target/linux/prepare lays out the source tree but does not build dtc.
+    # Reuse the exact-release binary shipped in ImageBuilder's LINUX_DIR.
+    official_dtc = official_linux_dir / "scripts" / "dtc" / "dtc"
+    seeded_dtc = source_linux_dir / "scripts" / "dtc" / "dtc"
     seeded_dtc.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(official_dtc, seeded_dtc)
 

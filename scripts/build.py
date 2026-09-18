@@ -119,18 +119,43 @@ def prepare_device_kernel_artifact(source_dir, settings, jobs, official_ib=None)
     shutil.copy2(official_vmlinux, seeded_vmlinux)
 
     # target/linux/prepare lays out the source tree but does not build dtc.
-    # Reuse the exact-release binary shipped in ImageBuilder's LINUX_DIR.
-    official_dtc = official_linux_dir / "scripts" / "dtc" / "dtc"
-    seeded_dtc = source_linux_dir / "scripts" / "dtc" / "dtc"
-    seeded_dtc.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(official_dtc, seeded_dtc)
+    # ImageBuilder ships dtc as a bundled host-tool wrapper: "dtc" executes a
+    # sibling ".dtc.bin" through libraries under staging_dir/host/lib. Copy the
+    # complete bundled tool and its exact-release runtime instead of copying only
+    # the wrapper script.
+    official_dtc_dir = official_linux_dir / "scripts" / "dtc"
+    seeded_dtc_dir = source_linux_dir / "scripts" / "dtc"
+    if not (official_dtc_dir / "dtc").is_file():
+        raise BuilderError(
+            f"Official ImageBuilder kernel tree is missing dtc: {official_dtc_dir / 'dtc'}"
+        )
+    shutil.copytree(
+        official_dtc_dir,
+        seeded_dtc_dir,
+        dirs_exist_ok=True,
+        symlinks=True,
+    )
+
+    official_host_lib = Path(official_ib) / "staging_dir" / "host" / "lib"
+    seeded_host_lib = Path(source_dir) / "staging_dir" / "host" / "lib"
+    if not official_host_lib.is_dir():
+        raise BuilderError(
+            f"Official ImageBuilder is missing bundled host libraries: {official_host_lib}"
+        )
+    seeded_host_lib.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        official_host_lib,
+        seeded_host_lib,
+        dirs_exist_ok=True,
+        symlinks=True,
+    )
 
     print(
         f"Seeded exact-release vmlinux from official ImageBuilder: {official_vmlinux}",
         flush=True,
     )
     print(
-        f"Seeded exact-release dtc from official ImageBuilder: {official_dtc}",
+        f"Seeded exact-release bundled dtc from official ImageBuilder: {official_dtc_dir}",
         flush=True,
     )
 

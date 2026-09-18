@@ -33,7 +33,7 @@ The profile catalog is validated in CI. The validator checks required files, set
 | **`selective-source`** | Only packages selected for the firmware plus their dependencies |
 | **`full-source`** | The broad package universe from source, optionally limited by selected feeds |
 
-`release-patched` enforces that boundary: local package roots are built with `NO_DEPS=1`, the generated ImageBuilder receives an explicit local-APK allowlist, and unchanged runtime userspace is resolved from the repositories pinned to `BASE_REF`. `BUILD_INFO` records the exact locally injected package set.
+`release-patched` enforces that boundary: the SDK may resolve and build the dependency closure needed to compile an explicitly patched root, but only the explicit local APK allowlist is injected into the final ImageBuilder. Unchanged runtime userspace is resolved from repositories pinned to `BASE_REF`. `BUILD_INFO` records the exact locally injected package set and the official packages seeded into the image. See [`docs/usage.md`](docs/usage.md#dependency-expansion-and-troubleshooting) when a build appears to compile more than expected.
 
 `SDK` is independent from build mode. It controls build acceleration, not package scope. See [`docs/profiles.md`](docs/profiles.md).
 

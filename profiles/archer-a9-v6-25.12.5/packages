@@ -8,7 +8,8 @@
 # Inline comments are also supported.
 #
 # Only list packages that are intentionally selected or excluded.
-# OpenWrt resolves transitive dependencies automatically.
+# OpenWrt resolves transitive dependencies for the firmware and SDK.
+# In release-patched, that does not make every dependency a local source root.
 
 # Web interface and networking
 luci

@@ -14,3 +14,17 @@ This preserves the intended boundary:
 - required kernel-module prerequisites are staged narrowly for dependency validation;
 - unrelated selected packages such as `batman-adv` are not compiled;
 - unchanged packages remain official `BASE_REF` binaries in the final image.
+
+
+## How to read dependency expansion
+
+A dependency appearing in an SDK or kmod preparation log is not automatically a custom package in the final firmware. The builder distinguishes:
+
+- SDK build dependencies needed to compile an explicit source root;
+- narrow external kmod prerequisites needed to validate a custom module against the kernel ABI;
+- official runtime dependencies resolved by the exact `BASE_REF` repositories;
+- custom APKs explicitly allowed by the profile.
+
+For AudioWRT, adding a package can therefore expand the build when its `DEPENDS` or `PKG_BUILD_DEPENDS` pulls more of the package graph into the SDK. That is expected if the expansion stays inside SDK preparation and the final `CUSTOM_APK_PACKAGES` list remains within the declared boundary. If unrelated userspace is compiled as custom output, inspect the package metadata and `source-build-targets`; do not add the entire dependency closure there.
+
+See [the usage troubleshooting guide](usage.md#dependency-expansion-and-troubleshooting) for the commands and the expected/suspicious cases.

@@ -45,13 +45,8 @@ jobs:
       - name: Resolve builder image
         id: builder
         run: |
-          if docker pull "$BUILDER_IMAGE"; then
-            echo "image=$BUILDER_IMAGE" >> "$GITHUB_OUTPUT"
-          else
-            echo "Published builder image unavailable; building Dockerfile locally as fallback."
-            docker build -t openwrt-builder:local .
-            echo "image=openwrt-builder:local" >> "$GITHUB_OUTPUT"
-          fi
+          docker pull "$BUILDER_IMAGE"
+          echo "image=$BUILDER_IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Validate builder and profiles
         env:

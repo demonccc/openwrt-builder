@@ -167,6 +167,28 @@ docker run --rm `
 
 `--log-file` is overwritten on each invocation and must stay outside `--output`, because the firmware output directory is recreated.
 
+## Dependency expansion and troubleshooting
+
+`release-patched` has two different dependency behaviors:
+
+1. The SDK can resolve build-time and ABI dependencies needed to compile an explicitly declared source root. Seeing additional targets in this part of the log is normal.
+2. The generated ImageBuilder receives only the custom APK allowlist plus official packages seeded from the exact base release. Extra SDK targets should not silently become custom userspace packages.
+
+After a build, inspect the boundary:
+
+```bash
+grep -E '^(SOURCE_BUILD|SDK_REGISTERED|SDK_BUILD|PACKAGE_BUILD_ENV|KMOD_POLICY|CUSTOM_APK_PACKAGES|OFFICIAL_SEEDED_PACKAGES|DEVICE_KERNEL_ARTIFACT|OFFICIAL_.*_(APK|VERSION)|INCLUDE_PACKAGES|EXCLUDE_PACKAGES|FEED_NAMES|UNCHANGED_PACKAGES)=' artifact/BUILD_INFO
+```
+
+Use the log together with `BUILD_INFO`:
+
+- If only SDK targets or a narrow `kmod-*` prerequisite appears, the expansion is normally expected.
+- If unrelated userspace packages are compiled and copied as custom APKs, inspect `source-build-targets` first. Do not add every package from the dependency log there.
+- If a new AudioWRT package causes more work, check its `DEPENDS` and `PKG_BUILD_DEPENDS`. Keep unchanged runtime dependencies supplied by the official release; declare a source root only when the dependency is itself patched or required to produce the custom ABI.
+- If `CONFIG_ALL=y`, `CONFIG_ALL_KMODS=y` or a full kernel target appears in a `release-patched` build, the build has crossed into the wrong mode or target path.
+
+The practical fix is to classify the extra package: official runtime dependency, SDK build dependency, narrow kmod prerequisite, or genuinely patched source root. The first three do not automatically belong in `source-build-targets`.
+
 ## GitHub Actions firmware build
 
 Run **Build OpenWrt firmware**. The `profile` input is a choice dropdown generated from the validated catalog under `profiles/`.

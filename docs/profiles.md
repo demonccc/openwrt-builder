@@ -98,42 +98,63 @@ SUBTARGET=generic
 DEVICE=vendor_device
 ```
 
-The builder first verifies that the exact official `BASE_REF` is an ancestor of the custom source. Package definitions are installed so `defconfig` can resolve the final firmware and custom-kernel dependency closure, but that does not mean the whole selected userspace is compiled locally.
+The builder first verifies that the exact official `BASE_REF` is an ancestor of the custom source. Package definitions are installed so `defconfig` can resolve the final firmware and custom-kernel dependency closure. That resolution can mention or build dependencies inside the SDK, but it does not turn the whole selected userspace into local final APKs.
 
 The local build boundary is:
 
-- prepare and compile the custom target/kernel layer from the patched source tree;
-- rebuild every selected kmod required by the final firmware against the custom kernel ABI;
+- prepare the patched target state and device image pipeline;
+- rebuild selected kmods against the custom kernel ABI;
 - compile package roots explicitly listed in `source-build-targets` only when the patch requires them;
-- compile local package roots with `NO_DEPS=1`, so their normal runtime dependencies are not recursively rebuilt from source;
-- compile `base-files` locally in isolation because the custom ImageBuilder and kernel image preparation need target-specific release metadata/root state;
-- take `libc` from the exact official base ImageBuilder instead of rebuilding it;
-- generate a custom ImageBuilder containing the patched target/kernel metadata, then pin its repositories and host tools back to the exact official base release.
+- use the official SDK to compile those roots with their genuine build dependencies when an SDK is available;
+- use `NO_DEPS=1` only for the explicit local-root/target preparation steps that must not fan out into an unrelated source build;
+- seed `base-files`, `libc` and `kernel` from the exact official base ImageBuilder;
+- generate a custom ImageBuilder, then pin its repositories and host tools back to the exact official base release.
 
 Only an explicit local APK allowlist is injected into that ImageBuilder:
 
 ```text
-base-files
 kernel
 selected kmod-* packages
 selected outputs belonging to source-build-targets
 ```
 
-Everything else in userspace is resolved by the final ImageBuilder from the repositories pinned to `BASE_REF`. Unchanged packages such as `hostapd`, `netifd`, `uci`, `ubus`, `libubox`, libraries and utilities must therefore remain official release binaries unless they are explicitly part of the patched build boundary.
+`base-files`, `libc` and the official kernel package are seeded from the exact release and are recorded separately from custom APKs. Everything else in userspace is resolved by the final ImageBuilder from repositories pinned to `BASE_REF`. Unchanged packages such as `hostapd`, `netifd`, `uci`, `ubus`, `libubox`, libraries and utilities remain official release binaries unless they are explicitly part of the patched build boundary.
 
 This distinction is what separates `release-patched` from `selective-source`: selecting a package for the final firmware does not automatically make it a source-build target.
+
+### Dependency expansion
+
+A larger dependency closure in the SDK log is not by itself a bug. OpenWrt may need build-time or ABI dependencies to compile one explicit root. The important question is what reaches the final ImageBuilder:
+
+- expected: extra SDK build targets, narrow external kmod prerequisites, and official packages resolved by the exact-release repositories;
+- suspicious: unrelated userspace APKs copied as custom outputs, `CONFIG_ALL*` expansion, or a full kernel compile when the profile only changes a device/kernel-module boundary;
+- corrective action: inspect `source-build-targets`, the package's `DEPENDS`/`PKG_BUILD_DEPENDS`, and the generated `BUILD_INFO`; keep runtime-only dependencies in the `packages` file, and add a source root only when that dependency itself is patched or required for the custom ABI.
+
+The builder intentionally does not guess a universal source boundary from the package graph. The package graph describes what must be available to compile and install; the profile declares which roots are allowed to be rebuilt locally.
 
 `BUILD_INFO` records the boundary after every build, including:
 
 ```text
 SOURCE_BUILD_TARGETS
 SOURCE_BUILD_PACKAGES
-LOCAL_KMOD_PACKAGES
-LOCAL_KMOD_BUILD_TARGETS
-LOCAL_APK_POLICY=allowlist
-LOCAL_APK_PACKAGES
+SDK_REGISTERED_SOURCE_ROOTS
+SDK_BUILD_TARGETS
+PACKAGE_BUILD_ENV
+KMOD_POLICY
+CUSTOM_APK_PACKAGES
+OFFICIAL_SEEDED_PACKAGES
+DEVICE_KERNEL_ARTIFACT
+OFFICIAL_BASE_FILES_APK
 OFFICIAL_LIBC_APK
-UNCHANGED_PACKAGES=official-base-release-userspace
+OFFICIAL_KERNEL_APK
+OFFICIAL_APK_KEYS
+OFFICIAL_BASE_FILES_VERSION
+OFFICIAL_LIBC_VERSION
+OFFICIAL_KERNEL_VERSION
+INCLUDE_PACKAGES
+EXCLUDE_PACKAGES
+FEED_NAMES
+UNCHANGED_PACKAGES=official-base-release
 ```
 
 If an APK required by the local allowlist was not produced, the builder fails instead of silently falling back to an unrelated local package set.

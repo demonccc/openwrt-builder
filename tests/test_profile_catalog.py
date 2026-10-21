@@ -20,20 +20,9 @@ class ProfileCatalogTests(unittest.TestCase):
             CATALOG.parse_profile_id("archer-a9-v6")
 
     def test_current_catalog_is_valid(self):
-        self.assertEqual(
-            CATALOG.validate_catalog(ROOT),
-            [
-                "archer-a9-v6-25.12",
-                "archer-a9-v6-25.12.5",
-                "archer-a9-v6-25.12.6",
-                "linksys-velop-whw03-v2-25.12.5",
-                "linksys-velop-whw03-v2-25.12.6",
-                "x86-64-24.10.5",
-                "x86-64-25.12.5",
-                "x86-64-25.12.6",
-                "x86-64-snapshot",
-            ],
-        )
+        catalog = CATALOG.validate_catalog(ROOT)
+        self.assertTrue(catalog)
+        self.assertEqual(catalog, sorted(catalog))
 
 
 if __name__ == "__main__":

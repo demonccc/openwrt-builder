@@ -1,0 +1,46 @@
+# Packages to include or exclude from the firmware image.
+#
+# One package per line.
+# package-name  -> include
+# -package-name -> exclude
+# #             -> comment
+#
+# Only intentional differences from the OpenWrt device defaults are listed.
+# ImageBuilder automatically includes the normal ipq40xx/generic and WHW03 V2
+# default packages and resolves dependencies for the packages below.
+
+# Use the upstream ath10k driver/firmware instead of the CT variants.
+-kmod-ath10k-ct
+kmod-ath10k
+-ath10k-firmware-qca4019-ct
+ath10k-firmware-qca4019
+-ath10k-firmware-qca9888-ct
+ath10k-firmware-qca9888
+
+# Full hostapd/wpa feature set used by the mesh/roaming topology.
+-wpad-basic-mbedtls
+wpad-mbedtls
+
+# Keep the default dnsmasq package available. DHCP/DNS service enablement is
+# controlled by the router configuration, not by removing it from the image.
+
+# Web UI and firmware management.
+luci
+luci-app-attendedsysupgrade
+luci-app-advanced-reboot
+
+# batman-adv Layer 2 mesh.
+batctl-full
+kmod-batman-adv
+luci-proto-batman-adv
+
+# Client steering. luci-app-usteer pulls in usteer as a dependency.
+luci-app-usteer
+
+# IRQ balancing. luci-app-irqbalance pulls in irqbalance as a dependency.
+luci-app-irqbalance
+
+# Network diagnostics installed manually while building the home topology.
+iputils-arping
+tcpdump
+ethtool

@@ -1,0 +1,12 @@
+# Mode 2: release-patched against the exact OpenWrt v25.12.6 base.
+# SDK=auto resolves the official SDK from BASE_REF + target/subtarget.
+METHOD=source
+BUILD_MODE=release-patched
+REPOSITORY=https://github.com/demonccc/openwrt.git
+REF=openwrt-25.12.6-archerA9v6
+BASE_REF=v25.12.6
+TARGET=ath79
+SUBTARGET=generic
+DEVICE=tplink_archer-a9-v6
+SDK=auto
+FEED_NAMES=packages luci routing

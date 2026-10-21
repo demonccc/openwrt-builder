@@ -1,0 +1,11 @@
+# Additional OpenWrt feeds.
+#
+# This file uses the native OpenWrt feeds.conf syntax. Entries are appended to
+# feeds.conf.default before the builder runs `scripts/feeds update -a` and
+# `scripts/feeds install -a`.
+#
+# Examples:
+# src-git myfeed https://github.com/example/openwrt-feed.git
+# src-git myfeed https://github.com/example/openwrt-feed.git^main
+#
+# Leave this file with comments only when no additional feeds are required.

@@ -1,0 +1,7 @@
+# OpenWrt packages loaded directly from Git repositories.
+#
+# Format:
+# REPOSITORY [REF] [PATH]
+#
+# REF and PATH are optional. Use - as REF when PATH is needed but the
+# repository default branch should be used.

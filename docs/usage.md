@@ -201,7 +201,14 @@ demonccc/openwrt-builder:latest
 
 Successful builds upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
 
-When a profile is added, removed or renamed, contributors only change the profile catalog. `scripts/sync-profile-workflow.py` derives the dropdown. After the change lands on `main`, `Sync build profile options` publishes the generated workflow update.
+When a profile is added, removed or renamed, regenerate and commit the dropdown in the same pull request:
+
+```bash
+python3 scripts/sync-profile-workflow.py
+python3 scripts/sync-profile-workflow.py --check
+```
+
+The generated options are the block between `BEGIN GENERATED PROFILE OPTIONS` and `END GENERATED PROFILE OPTIONS` in `.github/workflows/build.yml`. If a profile is added without updating that block, the `Sync build profile options` workflow fails and prints the diff so the author can commit the missing update. The workflow validates the result but does not push commits automatically and does not require `PROFILE_SYNC_TOKEN`.
 
 ## Locally built builder image
 

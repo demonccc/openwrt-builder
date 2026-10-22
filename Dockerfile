@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc-multilib \
     gettext \
     git \
+    gh \
     grep \
     gzip \
     help2man \
@@ -54,10 +55,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtool \
     libtool-bin \
     make \
+    nodejs \
     meson \
     mold \
     mtd-utils \
     ninja-build \
+    npm \
     patch \
     pbzip2 \
     perl \

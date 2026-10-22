@@ -12,9 +12,12 @@ on:
           # BEGIN GENERATED PROFILE OPTIONS
           - archer-a9-v6-25.12
           - archer-a9-v6-25.12.5
+          - archer-a9-v6-25.12.6
           - linksys-velop-whw03-v2-25.12.5
+          - linksys-velop-whw03-v2-25.12.6
           - x86-64-24.10.5
           - x86-64-25.12.5
+          - x86-64-25.12.6
           - x86-64-snapshot
           # END GENERATED PROFILE OPTIONS
       builder_image:

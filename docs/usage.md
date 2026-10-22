@@ -191,7 +191,9 @@ The practical fix is to classify the extra package: official runtime dependency,
 
 ## GitHub Actions firmware build
 
-Run **Build OpenWrt firmware**. The `profile` input is a choice dropdown generated from the validated catalog under `profiles/`.
+Run **Build OpenWrt firmware**. The job runs inside the selected builder Docker image and invokes `python3 scripts/build.py` directly. It does not run Docker-in-Docker; the generated `artifact/` directory stays in the Actions workspace for upload and release creation.
+
+The `profile` input is a choice dropdown generated from the validated catalog under `profiles/`.
 
 The workflow also exposes `builder_image` and `verbosity`. The default builder image is:
 

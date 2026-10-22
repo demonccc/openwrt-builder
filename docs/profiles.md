@@ -233,6 +233,15 @@ python3 scripts/validate-profile-catalog.py
 python3 tests/test_profile_catalog.py
 ```
 
-The normal validation workflow runs these checks automatically. The build workflow profile input is a generated `choice` list. `scripts/sync-profile-workflow.py` derives that list only from validated profiles, and `.github/workflows/sync-profile-options.yml` publishes changes after profile-related updates land on `main`.
+The normal validation workflow runs these checks automatically. The build workflow profile input is a generated `choice` list. `scripts/sync-profile-workflow.py` derives that list only from validated profiles.
+
+When adding, removing or renaming a profile, regenerate and commit the dropdown in the same pull request:
+
+```bash
+python3 scripts/sync-profile-workflow.py
+python3 scripts/sync-profile-workflow.py --check
+```
+
+The generated block lives between `BEGIN GENERATED PROFILE OPTIONS` and `END GENERATED PROFILE OPTIONS` in `.github/workflows/build.yml`. Pull-request CI checks that it is current. After changes land on `main`, `.github/workflows/sync-profile-options.yml` repeats the check and shows the diff if the dropdown is stale; it does not push changes automatically and does not require a token.
 
 See [`profiles/README.md`](../profiles/README.md) for the contribution contract and [`docs/usage.md`](usage.md) for Docker commands.

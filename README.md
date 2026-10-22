@@ -64,7 +64,7 @@ For commands, see [`docs/usage.md`](docs/usage.md). For image architecture and D
 
 ## GitHub Actions profile selector
 
-The build workflow exposes a choice dropdown generated from the validated profile catalog. `scripts/sync-profile-workflow.py` keeps it synchronized, and `.github/workflows/sync-profile-options.yml` publishes catalog changes after they land on `main`.
+The build workflow exposes a choice dropdown generated from the validated profile catalog. `scripts/sync-profile-workflow.py` generates it, and `.github/workflows/sync-profile-options.yml` verifies on `main` that the generated options are committed. When adding, removing or renaming a profile, run the generator and commit the resulting `.github/workflows/build.yml` change in the same pull request; otherwise the sync check fails and shows the diff.
 
 ## License
 

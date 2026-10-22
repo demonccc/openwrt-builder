@@ -50,11 +50,15 @@ The normal Docker validation workflow runs these checks automatically.
 
 ## GitHub Actions dropdown
 
-`.github/workflows/build.yml` contains generated profile choices between marker comments. Do not maintain that list by hand.
+`.github/workflows/build.yml` contains generated profile choices between marker comments. Do not edit the list by hand.
 
-`scripts/sync-profile-workflow.py` validates the catalog and regenerates the dropdown. Pull-request CI verifies the generator. After profile-related changes land on `main`, `.github/workflows/sync-profile-options.yml` regenerates and publishes the choices automatically.
+When adding, removing or renaming a profile:
 
-Automatic publication requires repository secret `PROFILE_SYNC_TOKEN`, scoped to this repository with permission to update repository contents and workflow files. The sync workflow only uses the credential on `main`.
+1. Run `python3 scripts/sync-profile-workflow.py`.
+2. Commit the resulting `.github/workflows/build.yml` change together with the profile change.
+3. Run `python3 scripts/sync-profile-workflow.py --check` to verify that the generated block is current.
+
+Pull-request CI validates the catalog and the generator. After changes land on `main`, `.github/workflows/sync-profile-options.yml` repeats the validation and fails with the generated diff if `.github/workflows/build.yml` is stale. It does not push commits automatically and does not require a repository token. This keeps profile additions reviewable in the same pull request and prevents an uncommitted workflow mutation on `main`.
 
 ## Current examples
 

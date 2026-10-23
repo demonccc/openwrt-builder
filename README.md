@@ -29,13 +29,13 @@ The profile catalog is validated in CI. The validator checks required files, set
 | Mode | What it compiles |
 | --- | --- |
 | **ImageBuilder** | Nothing from source; assembles firmware from prebuilt OpenWrt artifacts |
-| **`release-patched`** | Only the custom kernel/target layer, selected kmods and explicitly affected package roots; unchanged userspace comes from the exact base release |
+| **`release-patched`** | Patched device image and explicitly affected package roots built with the official SDK; the kernel and unchanged userspace come from the exact base release |
 | **`selective-source`** | Only packages selected for the firmware plus their dependencies |
 | **`full-source`** | The broad package universe from source, optionally limited by selected feeds |
 
-`release-patched` enforces that boundary: the SDK may resolve and build the dependency closure needed to compile an explicitly patched root, but only the explicit local APK allowlist is injected into the final ImageBuilder. Unchanged runtime userspace is resolved from repositories pinned to `BASE_REF`. `BUILD_INFO` records the exact locally injected package set and the official packages seeded into the image. See [`docs/usage.md`](docs/usage.md#dependency-expansion-and-troubleshooting) when a build appears to compile more than expected.
+`release-patched` enforces that boundary: the SDK may resolve and build the dependency closure needed to compile an explicitly patched root, but only the explicit local APK allowlist is injected into the official ImageBuilder matching `BASE_REF`. The device artifact reuses the official kernel with the patched DTS. `BUILD_INFO` records the injected package set and device artifact. See [`docs/usage.md`](docs/usage.md#dependency-expansion-and-troubleshooting) when a build appears to compile more than expected.
 
-`SDK` is independent from build mode. It controls build acceleration, not package scope. See [`docs/profiles.md`](docs/profiles.md).
+`SDK` controls build tooling, not package scope. `release-patched` requires the exact-release SDK. See [`docs/profiles.md`](docs/profiles.md).
 
 ## Reference profiles
 

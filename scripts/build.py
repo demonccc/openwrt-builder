@@ -25,3 +25,6 @@ globals()["__name__"] = "openwrt_builder_impl"
 exec(compile(_IMPL_PATH.read_text(encoding="utf-8"), str(_IMPL_PATH), "exec"), globals())
 globals()["__name__"] = _ORIGINAL_NAME
 
+
+if __name__ == "__main__":
+    raise SystemExit(main())

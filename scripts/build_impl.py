@@ -529,13 +529,13 @@ def download_sdk(url, destination):
 
 def build_state(source_dir):
     helper = source_dir / ".owb.mk"
-    helper.write_text("owb:\n\t@printf 'HOST=%s\\n' '$(STAGING_DIR_HOST)'\n\t@printf 'TOOLCHAIN=%s\\n' '$(TOOLCHAIN_DIR)'\n\t@printf 'TOOLS_STAMP=%s\\n' '$(tools/stamp-compile)'\n\t@printf 'TOOLCHAIN_STAMP=%s\\n' '$(toolchain/stamp-compile)'\n", encoding="utf-8")
+    helper.write_text("owb:\n\t@printf 'HOST=%s\\n' '$(STAGING_DIR_HOST)'\n\t@printf 'TOOLCHAIN=%s\\n' '$(TOOLCHAIN_DIR)'\n\t@printf 'TOOLS_STAMP=%s\\n' '$(tools/stamp-compile)'\n\t@printf 'TOOLCHAIN_STAMP=%s\\n' '$(toolchain/stamp-compile)'\n\t@printf 'STAGING_ROOT=%s\\n' '$(STAGING_DIR_ROOT)'\n", encoding="utf-8")
     try:
         output = subprocess.check_output(["make", "-s", "OPENWRT_BUILD=1", "-f", "Makefile", "-f", helper.name, "owb"], cwd=source_dir, text=True)
     finally:
         helper.unlink(missing_ok=True)
     values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
-    return tuple(Path(values[key]).resolve() for key in ("HOST", "TOOLCHAIN", "TOOLS_STAMP", "TOOLCHAIN_STAMP"))
+    return tuple(Path(values[key]).resolve() for key in ("HOST", "TOOLCHAIN", "TOOLS_STAMP", "TOOLCHAIN_STAMP", "STAGING_ROOT"))
 
 
 def replace_tree(source, destination):
@@ -548,7 +548,7 @@ def replace_tree(source, destination):
 
 
 def install_sdk_state(source_dir, sdk_root, *, include_host_tools=True):
-    host, toolchain, tools_stamp, toolchain_stamp = build_state(source_dir)
+    host, toolchain, tools_stamp, toolchain_stamp, _ = build_state(source_dir)
     sdk_toolchains = list((sdk_root / "staging_dir").glob("toolchain-*"))
     if len(sdk_toolchains) != 1 or sdk_toolchains[0].name != toolchain.name:
         raise BuilderError("SDK toolchain does not match the source build")
@@ -1128,10 +1128,10 @@ def seed_official_imagebuilder_keys(official_ib, source_dir, settings):
     source = official_ib / "keys"
     if not source.is_dir():
         raise BuilderError("Official base ImageBuilder does not contain APK signing keys")
-    target_roots = [root for root in source_dir.glob("staging_dir/target-*/root-*") if root.name == f"root-{settings['TARGET']}"]
-    if len(target_roots) != 1:
-        raise BuilderError(f"Expected one staging root for target {settings['TARGET']}, found {len(target_roots)}")
-    destination = target_roots[0] / "etc" / "apk" / "keys"
+    staging_root = build_state(source_dir)[4]
+    if staging_root.name != f"root-{settings['TARGET']}":
+        raise BuilderError(f"Configured staging root does not match target {settings['TARGET']}: {staging_root}")
+    destination = staging_root / "etc" / "apk" / "keys"
     destination.mkdir(parents=True, exist_ok=True)
     copied = 0
     for key in source.iterdir():
@@ -1156,10 +1156,10 @@ def seed_official_imagebuilder_versions(official_ib, source_dir, settings):
     missing = [name for name in wanted if not values.get(name)]
     if missing:
         raise BuilderError("Official base ImageBuilder is missing version metadata: " + ", ".join(missing))
-    target_roots = [root for root in source_dir.glob("staging_dir/target-*/root-*") if root.name == f"root-{settings['TARGET']}"]
-    if len(target_roots) != 1:
-        raise BuilderError(f"Expected one staging root for target {settings['TARGET']}, found {len(target_roots)}")
-    staging_dir = target_roots[0].parent
+    staging_root = build_state(source_dir)[4]
+    if staging_root.name != f"root-{settings['TARGET']}":
+        raise BuilderError(f"Configured staging root does not match target {settings['TARGET']}: {staging_root}")
+    staging_dir = staging_root.parent
     written = {}
     for variable, filename in wanted.items():
         destination = staging_dir / filename

@@ -137,11 +137,11 @@ The builder is conservative about reuse:
 - Source builds using an SDK reuse that SDK's host tools and target toolchain together. This keeps those two parts of the SDK as one coherent build environment.
 - Official stable OpenWrt refs without an SDK use their `openwrt-X.Y` tools family when available.
 - Official OpenWrt `main` without an SDK uses `ghcr.io/openwrt/tools:latest`.
-- `release-patched` forks without an SDK compare the custom source against `BASE_REF`. If host-tools inputs such as `tools/`, `toolchain/`, `include/cmake.mk`, or the external-tools/stamp mechanism changed, official prebuilt tools are not reused.
+- `release-patched` requires the official SDK for its exact `BASE_REF`.
 - Custom repositories without a `BASE_REF` do not assume compatibility and build host tools from source.
 - If the official tools image cannot be pulled or unpacked, the optimization is skipped and OpenWrt builds the host tools normally.
 
-`release-patched` has one additional ImageBuilder rule. The source compilation uses the SDK host tools and toolchain together when an SDK is selected. The generated custom ImageBuilder is then combined with the **host-tool tree from the official ImageBuilder matching `BASE_REF`** before it is executed. This avoids reusing the generated ImageBuilder's twice-bundled SDK wrappers while also avoiding a mixed SDK-toolchain / moving-branch-host-tools source build.
+`release-patched` uses the SDK's host tools and toolchain to compile declared patched package roots. It assembles the firmware with the official ImageBuilder matching `BASE_REF` after injecting the custom APKs and patched device artifact.
 
 `BUILD_INFO` records:
 

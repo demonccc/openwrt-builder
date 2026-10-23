@@ -316,13 +316,13 @@ Package: batctl-full
         (official_ib / "keys").mkdir(parents=True)
         (official_ib / "keys" / "openwrt-key.pem").write_text("key", encoding="utf-8")
         staging = source / "staging_dir" / "target-mips_24kc_musl" / "root-ath79"
-        staging.mkdir(parents=True)
 
-        result = BUILDER.seed_official_imagebuilder_keys(
-            official_ib,
-            source,
-            {"TARGET": "ath79"},
-        )
+        with patch.object(BUILDER, "build_state", return_value=(None, None, None, None, staging)):
+            result = BUILDER.seed_official_imagebuilder_keys(
+                official_ib,
+                source,
+                {"TARGET": "ath79"},
+            )
 
         self.assertEqual(result, staging / "etc" / "apk" / "keys")
         self.assertEqual(
@@ -337,16 +337,16 @@ Package: batctl-full
         root = Path(temp.name)
         official_ib = root / "official"
         source = root / "source"
-        (source / "staging_dir" / "target-mips_24kc_musl" / "root-ath79").mkdir(
-            parents=True, exist_ok=True
-        )
+        staging = source / "staging_dir" / "target-mips_24kc_musl" / "root-ath79"
+        staging.parent.mkdir(parents=True)
         (official_ib / "include").mkdir(parents=True)
         (official_ib / "include" / "version.mk").write_text(
             "BASE_FILES_VERSION:=1666-r1\nLIBC_VERSION:=1.2.5-r4\nKERNEL_VERSION:=6.12.94~f58943ca8e5ad0ff489b492a7983a376-r1\n",
             encoding="utf-8",
         )
 
-        versions = BUILDER.seed_official_imagebuilder_versions(official_ib, source, {"TARGET": "ath79"})
+        with patch.object(BUILDER, "build_state", return_value=(None, None, None, None, staging)):
+            versions = BUILDER.seed_official_imagebuilder_versions(official_ib, source, {"TARGET": "ath79"})
 
         self.assertEqual(versions["BASE_FILES_VERSION"], "1666-r1")
         self.assertEqual(versions["LIBC_VERSION"], "1.2.5-r4")

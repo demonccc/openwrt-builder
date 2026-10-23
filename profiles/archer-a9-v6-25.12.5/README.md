@@ -6,12 +6,12 @@ Internally it uses `release-patched`: `openwrt-25.12.5-archerA9v6` is based on o
 
 The release boundary is intentional:
 
-- the patched target/device image pipeline and selected kmods use the custom source tree;
+- the patched device image pipeline reuses the official kernel with the custom DTS;
 - package roots listed in `source-build-targets` are compiled locally only when the patch requires them;
 - the SDK may build genuine dependencies of those roots, but only the declared custom APKs are injected into the final ImageBuilder;
-- the official ImageBuilder seeds `base-files`, `libc` and `kernel`; they are not rebuilt as unrelated local userspace roots;
+- `base-files`, `libc` and `kernel` remain the official release packages;
 - unchanged userspace packages come from the exact official OpenWrt 25.12.5 release;
-- the custom ImageBuilder repositories and host tools are pinned back to the exact official base release.
+- final assembly uses the official ImageBuilder for the exact base release.
 
 This prevents a `release-patched` build from drifting into `selective-source` behavior. A package appearing in the SDK dependency log is not automatically a custom firmware package. Packages such as `hostapd`, `netifd`, `uci`, `ubus`, `libubox` and other unchanged userspace dependencies remain official release binaries.
 
@@ -19,7 +19,7 @@ If adding an AudioWRT package causes additional compilation, inspect its `DEPEND
 
 Use [the dependency troubleshooting guide](../../docs/usage.md#dependency-expansion-and-troubleshooting) for the detailed procedure.
 
-`BUILD_INFO` records the local package policy, official seeded packages and exact injected package list.
+`BUILD_INFO` records the local package policy, injected APKs and device artifact.
 
 Use this profile when you want a reproducible firmware based on one exact OpenWrt point release.
 

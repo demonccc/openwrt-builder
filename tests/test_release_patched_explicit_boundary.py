@@ -1,7 +1,9 @@
 import importlib.util
-import inspect
+import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,43 +14,56 @@ SPEC.loader.exec_module(BUILDER)
 
 
 class ReleasePatchedExplicitBoundaryTests(unittest.TestCase):
-    def test_release_patched_does_not_expand_all_selected_kmods(self):
-        source = inspect.getsource(BUILDER.build_release_patched)
-        self.assertNotIn("resolve_kernel_build_targets", source)
-        self.assertNotIn("kernel_targets", source)
-        self.assertIn("resolve_selected_packages_for_targets", source)
+    def test_release_patched_uses_official_sdk_and_imagebuilder(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        source, sdk, official_ib = (root / name for name in ("source", "sdk", "imagebuilder"))
+        profile = root / "profile"
+        device_kernel = source / "build_dir" / "target-demo" / "linux-demo" / "device-kernel.bin"
+        injected_kernel = official_ib / "build_dir" / "target-demo" / "linux-demo" / device_kernel.name
+        settings = {"BASE_REF": "v1.2.3", "DEVICE": "device"}
+        declared_target = "package/kernel/radio/compile"
+        package = "kmod-radio"
+        with ExitStack() as stack:
+            def stub(name, **kwargs):
+                return stack.enter_context(patch.object(BUILDER, name, **kwargs))
 
-    def test_release_patched_does_not_compile_base_files(self):
-        source = inspect.getsource(BUILDER.build_release_patched)
-        self.assertNotIn('package/base-files/compile', source)
-        self.assertIn('seed_official_imagebuilder_package', source)
-        self.assertIn('"base-files"', source)
+            stub("parse_packages", return_value=(["base-files", package], []))
+            stub("parse_simple_list", return_value=[declared_target])
+            stub("prepare_source", return_value=(source, "patch-ref", [], "base-commit"))
+            stub("install_feed_packages")
+            stub("prepare_sdk", return_value=(sdk, "sdk-url", "auto"))
+            stub("copy_files", return_value=False)
+            stub("write_config")
+            run = stub("run")
+            stub("resolve_selected_packages_for_targets", return_value=[package])
+            stub("install_sdk_state")
+            stub("download_sources")
+            sdk_targets = stub("prepare_sdk_source_targets", return_value=([declared_target], [declared_target]))
+            sdk_compile = stub("compile_sdk_source_targets")
+            stub("prepare_official_base_imagebuilder", return_value=official_ib)
+            copied_apks = stub("copy_local_apks", return_value=[package])
+            stub("prepare_device_kernel_artifact", return_value=device_kernel)
+            inject_kernel = stub("inject_device_kernel_into_official_imagebuilder", return_value=injected_kernel)
+            stub("prepare_output")
+            write_info = stub("write_info")
+            generated = stub("generated_imagebuilder")
+            compile_source = stub("compile_without_dependencies")
 
-    def test_release_patched_compiles_only_declared_package_roots(self):
-        source = inspect.getsource(BUILDER.build_release_patched)
-        self.assertNotIn("CONFIG_ALL_KMODS=y", source)
-        self.assertIn("compile_without_dependencies(source_dir, targets, jobs)", source)
-        self.assertIn("official_ib=official_ib", source)
-        self.assertIn("package_build_root = sdk if sdk else source_dir", source)
+            BUILDER.build_release_patched("sample", profile, settings, None, root / "out", 2)
 
-    def test_release_patched_never_names_unrelated_package_targets(self):
-        source = inspect.getsource(BUILDER.build_release_patched)
-        self.assertNotIn("batman-adv/compile", source)
-        self.assertNotIn("gpio-button-hotplug/compile", source)
-        self.assertNotIn("package/kernel/linux/compile", source)
-
-    def test_sdk_source_compile_keeps_dependencies_enabled(self):
-        source = inspect.getsource(BUILDER.compile_sdk_source_targets)
-        self.assertNotIn("NO_DEPS=1", source)
-        self.assertIn("source_target_root", source)
-
-    def test_release_patched_uses_sdk_for_explicit_packages(self):
-        source = inspect.getsource(BUILDER.build_release_patched)
-        self.assertIn("prepare_sdk_source_targets", source)
-        self.assertIn("compile_sdk_source_targets", source)
-        self.assertIn("package_build_root = sdk if sdk else source_dir", source)
-        self.assertIn('["base-files", "libc", "kernel"]', source)
-
+        sdk_targets.assert_called_once_with(source, sdk, [declared_target], [package])
+        sdk_compile.assert_called_once_with(sdk, [declared_target], 2)
+        copied_apks.assert_called_once_with(sdk, official_ib, [package])
+        inject_kernel.assert_called_once_with(device_kernel, source, official_ib)
+        self.assertEqual(run.call_args_list[-1].kwargs["cwd"], official_ib)
+        self.assertEqual(run.call_args_list[-1].args[0][:2], ["make", "image"])
+        generated.assert_not_called()
+        compile_source.assert_not_called()
+        info = write_info.call_args.args[1]
+        self.assertIn("IMAGE_ASSEMBLY_ENV=official-imagebuilder", info)
+        self.assertIn(f"CUSTOM_APK_PACKAGES={package}", info)
 
 
 if __name__ == "__main__":

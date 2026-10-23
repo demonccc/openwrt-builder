@@ -88,18 +88,24 @@ other: value
 
         self.assertEqual(stamp, linux_dir / ".image")
 
-    def test_prepares_compiled_kernel_image_before_image_prepare_and_device_kernel(self):
+    def test_builds_device_artifact_from_official_kernel_without_kernel_compile(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         source = Path(temp.name)
         image_dir = source / "target" / "linux" / "demo" / "image"
         image_dir.mkdir(parents=True)
         (image_dir / "Makefile").write_text("", encoding="utf-8")
-        kernel_target = source / "build_dir" / "target-demo" / "linux-demo" / "vendor_device-kernel.bin"
+        kernel_target = source / "build_dir" / "target-demo" / "linux-demo_generic" / "vendor_device-kernel.bin"
         linux_dir = kernel_target.parent / "linux-6.12.94"
         linux_dir.mkdir(parents=True)
         (linux_dir / ".config").write_text("CONFIG_TEST=y\n", encoding="utf-8")
-        kernel_image_stamp = linux_dir / ".image"
+        official_ib = source / "official"
+        official_kernel = official_ib / "build_dir" / "target-demo" / "linux-demo_generic"
+        official_linux = official_kernel / "linux-6.12.94"
+        official_linux.joinpath("scripts", "dtc").mkdir(parents=True)
+        (official_linux / "scripts" / "dtc" / "dtc").write_text("dtc", encoding="utf-8")
+        (official_kernel / "vmlinux").write_text("official kernel", encoding="utf-8")
+        (official_ib / "staging_dir" / "host" / "lib").mkdir(parents=True)
         database = SimpleNamespace(
             returncode=0,
             stdout=f"install: {kernel_target}\n",
@@ -109,8 +115,6 @@ other: value
 
         def fake_run(command, *, cwd=None, check=True):
             commands.append(list(command))
-            if str(kernel_image_stamp) in command:
-                kernel_image_stamp.touch()
             if str(kernel_target) in command:
                 kernel_target.parent.mkdir(parents=True, exist_ok=True)
                 kernel_target.touch()
@@ -121,16 +125,18 @@ other: value
         ):
             result = BUILDER.prepare_device_kernel_artifact(
                 source,
-                {"TARGET": "demo", "DEVICE": "vendor_device"},
+                {"TARGET": "demo", "SUBTARGET": "generic", "DEVICE": "vendor_device"},
                 1,
+                official_ib=official_ib,
             )
 
         self.assertEqual(result, kernel_target)
-        self.assertIn(str(kernel_image_stamp), commands[0])
-        self.assertIn("TARGET_BUILD=1", commands[0])
-        self.assertNotIn("Kernel/Configure=$(KERNEL_MAKE) olddefconfig", commands[0])
+        self.assertIn("target/linux/prepare", commands[0])
         self.assertIn("kernel_prepare", commands[1])
         self.assertIn(str(kernel_target), commands[2])
+        self.assertEqual((kernel_target.parent / "vmlinux").read_text(encoding="utf-8"), "official kernel")
+        self.assertFalse(any("target/linux/compile" in command for command in commands))
+        self.assertFalse(any(".image" in " ".join(command) for command in commands))
 
 
 if __name__ == "__main__":

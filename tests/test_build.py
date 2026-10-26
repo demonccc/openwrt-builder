@@ -19,6 +19,7 @@ class FeedDiscoveryTests(unittest.TestCase):
             root = Path(temp)
             profile = root / "profile"
             profile.mkdir()
+            (profile / "git-packages").write_text("", encoding="utf-8")
             source_checkout = root / "example" / "openwrt"
             source_checkout.mkdir(parents=True)
             (source_checkout / "feeds.conf.default").write_text("", encoding="utf-8")

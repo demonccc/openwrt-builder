@@ -98,7 +98,7 @@ SUBTARGET=generic
 DEVICE=vendor_device
 ```
 
-The builder first verifies that the exact official `BASE_REF` is an ancestor of the custom source. Package definitions are installed so `defconfig` can resolve the final firmware and custom-kernel dependency closure. That resolution can mention or build dependencies inside the SDK, but it does not turn the whole selected userspace into local final APKs.
+The builder first verifies that the exact official `BASE_REF` is an ancestor of the custom source. It registers only the selected feed packages from `packages` and their feed dependencies so `defconfig` can resolve the final firmware and custom-kernel dependency closure; it does not register every package in each feed. That resolution can mention or build dependencies inside the SDK, but it does not turn the whole selected userspace into local final APKs.
 
 The local build boundary is:
 

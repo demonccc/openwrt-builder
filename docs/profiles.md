@@ -98,7 +98,7 @@ SUBTARGET=generic
 DEVICE=vendor_device
 ```
 
-The builder first verifies that the exact official `BASE_REF` is an ancestor of the custom source. It registers only the selected feed packages from `packages` and their feed dependencies so `defconfig` can resolve the final firmware and custom-kernel dependency closure; it does not register every package in each feed. That resolution can mention or build dependencies inside the SDK, but it does not turn the whole selected userspace into local final APKs.
+The builder first verifies that the exact official `BASE_REF` is an ancestor of the custom source. It updates the feeds declared by OpenWrt (and any additional feeds from the profile), then registers only the selected feed packages from `packages` and their dependencies so `defconfig` can resolve the final firmware and custom-kernel dependency closure; it does not register every package in each feed. That resolution can mention or build dependencies inside the SDK, but it does not turn the whole selected userspace into local final APKs.
 
 The local build boundary is:
 
@@ -161,7 +161,6 @@ REF=v25.12.5
 TARGET=x86
 SUBTARGET=64
 DEVICE=generic
-FEED_NAMES=packages luci routing
 ```
 
 Only packages selected for the firmware plus their dependencies compile from the chosen source tree. This mode does not enable the broad `CONFIG_ALL*` package universe.
@@ -198,7 +197,7 @@ The builder validates malformed and duplicate package entries.
 
 ## `feeds`
 
-Source profiles accept standard OpenWrt feed declarations such as `src-git`, `src-git-full`, `src-link`, and `src-cpy`. ImageBuilder profiles keep this required file for a uniform profile layout, but it is not consumed by ImageBuilder builds.
+Source profiles accept standard OpenWrt feed declarations such as `src-git`, `src-git-full`, `src-link`, and `src-cpy`. Use this file only for additional feeds; OpenWrt's default feeds require no declaration. The builder updates the configured feeds and resolves selected packages (including their feed dependencies) by name. A profile author does not need to know which feed supplies each package. Feed indexing still scans the whole feed, so an unselected package such as `telegraf` can appear under `Collecting package info` without being registered or included in the firmware. Optional `FEED_NAMES` limits feed updates when the author already knows which feeds are needed; omit it for automatic lookup. ImageBuilder profiles keep the required `feeds` file for a uniform layout, but do not consume it.
 
 ## `git-packages`
 

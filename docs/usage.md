@@ -2,7 +2,7 @@
 
 OpenWrt Builder always runs inside Docker. The same containerized execution model is used locally and by GitHub Actions so Windows, macOS, Linux and CI use the same Linux build environment and the same `scripts/build.py` behavior.
 
-Public profiles are versioned. See [`profiles/README.md`](../profiles/README.md) and [`docs/profiles.md`](profiles.md).
+Public profiles use `<vendor>-<model>-<openwrt_version>` as their folder and build ID; model parts use underscores. Existing release tags retain their old names. See [`profiles/README.md`](../profiles/README.md) and [`docs/profiles.md`](profiles.md).
 
 ## Prerequisite
 
@@ -49,7 +49,7 @@ CI runs both forms.
 
 ## Build a profile
 
-The exact-release Archer A9 v6 profile is `archer-a9-v6-25.12.5`.
+The exact-release Archer A9 v6 profile is `tplink-archer_a9_v6-25.12.5`.
 
 Linux / macOS:
 
@@ -60,7 +60,7 @@ docker run --rm \
   -v "$PWD:/workspace" \
   demonccc/openwrt-builder:latest \
   python3 scripts/build.py build \
-  --profile archer-a9-v6-25.12.5 \
+  --profile tplink-archer_a9_v6-25.12.5 \
   --output artifact
 ```
 
@@ -72,7 +72,7 @@ docker run --rm `
   -v "${PWD}:/workspace" `
   demonccc/openwrt-builder:latest `
   python3 scripts/build.py build `
-  --profile archer-a9-v6-25.12.5 `
+  --profile tplink-archer_a9_v6-25.12.5 `
   --output artifact
 ```
 
@@ -103,7 +103,7 @@ docker run --rm \
   -v "$PWD:/workspace" \
   demonccc/openwrt-builder:latest \
   python3 scripts/build.py build \
-  --profile archer-a9-v6-25.12.5 \
+  --profile tplink-archer_a9_v6-25.12.5 \
   --output artifact \
   --cache-dir .cache/openwrt-builder
 ```
@@ -141,12 +141,12 @@ docker run --rm \
   -v "$PWD:/workspace" \
   demonccc/openwrt-builder:latest \
   python3 scripts/build.py build \
-  --profile archer-a9-v6-25.12.5 \
+  --profile tplink-archer_a9_v6-25.12.5 \
   --output artifact \
   --cache-dir .cache/openwrt-builder \
   --jobs 1 \
   --verbosity debug \
-  --log-file logs/archer-a9-v6-25.12.5.log
+  --log-file logs/tplink-archer_a9_v6-25.12.5.log
 ```
 
 Windows PowerShell:
@@ -157,12 +157,12 @@ docker run --rm `
   -v "${PWD}:/workspace" `
   demonccc/openwrt-builder:latest `
   python3 scripts/build.py build `
-  --profile archer-a9-v6-25.12.5 `
+  --profile tplink-archer_a9_v6-25.12.5 `
   --output artifact `
   --cache-dir .cache/openwrt-builder `
   --jobs 1 `
   --verbosity debug `
-  --log-file logs/archer-a9-v6-25.12.5.log
+  --log-file logs/tplink-archer_a9_v6-25.12.5.log
 ```
 
 `--log-file` is overwritten on each invocation and must stay outside `--output`, because the firmware output directory is recreated.
@@ -226,7 +226,7 @@ docker run --rm \
   -v "$PWD:/workspace" \
   demonccc/openwrt-builder:latest \
   python3 scripts/build.py build \
-  --profile x86-64-25.12.5 \
+  --profile generic-x86_64-25.12.5 \
   --source-ref v25.12.5 \
   --output artifact
 ```

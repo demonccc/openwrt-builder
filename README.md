@@ -6,21 +6,21 @@ The canonical explanation of build modes lives under [`docs/`](docs/). Public bu
 
 ## Profile IDs
 
-Profile names follow:
+A profile records an OpenWrt version, selected packages, source repositories and image build settings. Its folder name is the public build ID. Names follow:
 
 ```text
-<device>-<X.Y.Z|X.Y|snapshot>
+<vendor>-<model>-<X.Y.Z|X.Y|snapshot>
 ```
 
 Examples:
 
 ```text
-archer-a9-v6-25.12.5   # exact OpenWrt release
-archer-a9-v6-25.12     # moving OpenWrt 25.12 stable branch
-x86-64-snapshot        # OpenWrt main/snapshot
+tplink-archer_a9_v6-25.12.5   # exact OpenWrt release
+tplink-archer_a9_v6-25.12     # moving OpenWrt 25.12 stable branch
+generic-x86_64-snapshot        # OpenWrt main/snapshot
 ```
 
-Build implementation is not part of the public profile name. `imagebuilder`, `release-patched`, `selective-source`, and `full-source` remain settings inside each profile.
+The vendor and model are lowercase; separate words within the model with underscores (for example `tplink-archer_a9_v6-25.12.6`). Use `generic` when hardware has no vendor. Build implementation is not part of the public profile name. `imagebuilder`, `release-patched`, `selective-source`, and `full-source` remain settings inside each profile.
 
 The profile catalog is validated in CI. The validator checks required files, settings/package/feed syntax, and consistency between the version encoded in the profile ID and `REF`, `BASE_REF`, SDK/ImageBuilder release URLs. See [`profiles/README.md`](profiles/README.md).
 
@@ -41,12 +41,12 @@ The profile catalog is validated in CI. The validator checks required files, set
 
 | Profile | Mode | Purpose |
 | --- | --- | --- |
-| [`archer-a9-v6-25.12.5`](profiles/archer-a9-v6-25.12.5/) | `release-patched` | Archer A9 v6 on exact `v25.12.5 + QCN5502` |
-| [`archer-a9-v6-25.12`](profiles/archer-a9-v6-25.12/) | `selective-source` | Archer A9 v6 following the custom OpenWrt 25.12 stable-derived branch |
-| [`linksys-velop-whw03-v2-25.12.5`](profiles/linksys-velop-whw03-v2-25.12.5/) | ImageBuilder | Linksys Velop WHW03 v2 on OpenWrt 25.12.5 |
-| [`x86-64-24.10.5`](profiles/x86-64-24.10.5/) | ImageBuilder | Generic x86/64 on OpenWrt 24.10.5 |
-| [`x86-64-25.12.5`](profiles/x86-64-25.12.5/) | `selective-source` | Generic x86/64 on exact OpenWrt 25.12.5 source |
-| [`x86-64-snapshot`](profiles/x86-64-snapshot/) | `full-source` | Generic x86/64 following OpenWrt main |
+| [`tplink-archer_a9_v6-25.12.5`](profiles/tplink-archer_a9_v6-25.12.5/) | `release-patched` | Archer A9 v6 on exact `v25.12.5 + QCN5502` |
+| [`tplink-archer_a9_v6-25.12`](profiles/tplink-archer_a9_v6-25.12/) | `selective-source` | Archer A9 v6 following the custom OpenWrt 25.12 stable-derived branch |
+| [`linksys-velop_whw03_v2-25.12.5`](profiles/linksys-velop_whw03_v2-25.12.5/) | ImageBuilder | Linksys Velop WHW03 v2 on OpenWrt 25.12.5 |
+| [`generic-x86_64-24.10.5`](profiles/generic-x86_64-24.10.5/) | ImageBuilder | Generic x86/64 on OpenWrt 24.10.5 |
+| [`generic-x86_64-25.12.5`](profiles/generic-x86_64-25.12.5/) | `selective-source` | Generic x86/64 on exact OpenWrt 25.12.5 source |
+| [`generic-x86_64-snapshot`](profiles/generic-x86_64-snapshot/) | `full-source` | Generic x86/64 following OpenWrt main |
 
 ## Docker execution
 

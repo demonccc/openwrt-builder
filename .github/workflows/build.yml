@@ -6,18 +6,18 @@ on:
       profile:
         description: Versioned profile under profiles/
         required: true
-        default: archer-a9-v6-25.12.5
+        default: tplink-archer_a9_v6-25.12.5
         type: choice
         options:
-          - archer-a9-v6-25.12
-          - archer-a9-v6-25.12.5
-          - archer-a9-v6-25.12.6
-          - linksys-velop-whw03-v2-25.12.5
-          - linksys-velop-whw03-v2-25.12.6
-          - x86-64-24.10.5
-          - x86-64-25.12.5
-          - x86-64-25.12.6
-          - x86-64-snapshot
+          - tplink-archer_a9_v6-25.12
+          - tplink-archer_a9_v6-25.12.5
+          - tplink-archer_a9_v6-25.12.6
+          - linksys-velop_whw03_v2-25.12.5
+          - linksys-velop_whw03_v2-25.12.6
+          - generic-x86_64-24.10.5
+          - generic-x86_64-25.12.5
+          - generic-x86_64-25.12.6
+          - generic-x86_64-snapshot
       builder_image:
         description: Docker image used as the OpenWrt build environment
         required: true

@@ -6,4 +6,4 @@ The public ID ends in `25.12` to make that rolling stable-line behavior explicit
 
 Internally the builder uses `selective-source`, compiling the selected firmware packages and their dependencies from that source tree. The build mode is intentionally not part of the public profile name.
 
-For the exact OpenWrt 25.12.5 base, use [`archer-a9-v6-25.12.5`](../archer-a9-v6-25.12.5/README.md).
+For the exact OpenWrt 25.12.5 base, use [`tplink-archer_a9_v6-25.12.5`](../tplink-archer_a9_v6-25.12.5/README.md).

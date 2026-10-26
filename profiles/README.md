@@ -7,27 +7,30 @@ Each directory under `profiles/` is one public build profile. The directory name
 Profile IDs are mandatory and versioned:
 
 ```text
-<device>-<X.Y.Z|X.Y|snapshot>
+<vendor>-<model>-<X.Y.Z|X.Y|snapshot>
 ```
 
-The suffix is semantic:
+The vendor and model are lowercase; separate parts of the model with underscores. For vendorless targets, use `generic` (for example `generic-x86_64-snapshot`). The suffix is semantic:
 
-- `X.Y.Z` means an exact OpenWrt release, for example `archer-a9-v6-25.12.5`.
-- `X.Y` means the moving stable branch for that release line, for example `archer-a9-v6-25.12` using an `openwrt-25.12...` ref.
+- `X.Y.Z` means an exact OpenWrt release, for example `tplink-archer_a9_v6-25.12.5`.
+- `X.Y` means the moving stable branch for that release line, for example `tplink-archer_a9_v6-25.12` using an `openwrt-25.12...` ref.
 - `snapshot` means the OpenWrt development snapshot (`REF=main`) or a `/snapshots/` ImageBuilder.
 
 Build implementation is deliberately not part of the public profile ID. `imagebuilder`, `release-patched`, `selective-source`, and `full-source` belong in `settings` because they describe how the firmware is produced, not which firmware profile the user selected.
 
 ## Required profile files
 
-Every profile directory must contain:
+A profile directory has this layout:
 
 ```text
-README.md
-settings
-packages
-feeds
-git-packages
+profiles/
+└── <vendor>-<model>-<openwrt_version>/
+    ├── README.md
+    ├── settings
+    ├── packages
+    ├── feeds
+    ├── git-packages
+    └── source-build-targets  # release-patched only
 ```
 
 `source-build-targets` is allowed only for `release-patched` profiles and is mandatory there. `files/` is optional for embedded root filesystem files.
@@ -55,10 +58,10 @@ When adding, removing, or renaming a profile, edit the `profile` choices in `.gi
 ## Current examples
 
 ```text
-archer-a9-v6-25.12.5
-archer-a9-v6-25.12
-linksys-velop-whw03-v2-25.12.5
-x86-64-24.10.5
-x86-64-25.12.5
-x86-64-snapshot
+tplink-archer_a9_v6-25.12.5
+tplink-archer_a9_v6-25.12
+linksys-velop_whw03_v2-25.12.5
+generic-x86_64-24.10.5
+generic-x86_64-25.12.5
+generic-x86_64-snapshot
 ```

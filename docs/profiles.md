@@ -202,7 +202,11 @@ The builder validates malformed and duplicate package entries.
 
 ## `feeds`
 
-Source profiles accept standard OpenWrt feed declarations such as `src-git`, `src-git-full`, `src-link`, and `src-cpy`. Use this file only for additional feeds; OpenWrt's default feeds require no declaration. The builder updates the configured feeds and resolves selected packages (including their feed dependencies) by name. A profile author does not need to know which feed supplies each package. Feed indexing still scans the whole feed, so an unselected package such as `telegraf` can appear under `Collecting package info` without being registered or included in the firmware. Optional `FEED_NAMES` limits feed updates when the author already knows which feeds are needed; omit it for automatic lookup. ImageBuilder profiles keep the required `feeds` file for a uniform layout, but do not consume it.
+The `feeds` file is required in every profile, but its contents may be empty or comments only. Source profiles use it for additional OpenWrt feed declarations (`src-git`, `src-git-full`, `src-link`, or `src-cpy`); OpenWrt's default feeds come from the source tree and need no declaration. ImageBuilder profiles keep the file for the common layout but do not use it.
+
+For `release-patched` and `selective-source` profiles without `git-packages`, the builder updates configured feeds and asks OpenWrt to install the packages selected by name in `packages`; OpenWrt handles their feed dependencies. The author need not map each selected package to a feed. Feed indexing still scans the whole feed, so an unselected package such as `telegraf` can appear under `Collecting package info` without being installed in the source tree or included in the firmware. `full-source` registers all packages from its configured feeds; profiles with `git-packages` also register all feeds before importing those packages.
+
+`FEED_NAMES` is an optional **setting** in `settings`, not a replacement for the required `feeds` file. If present, it limits feed updates (and `full-source` feed registration); omit it to update all configured feeds and let OpenWrt find selected packages by name. In non-full builds with `git-packages`, the builder ignores `FEED_NAMES` and updates all feeds.
 
 ## `git-packages`
 

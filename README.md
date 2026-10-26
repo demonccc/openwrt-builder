@@ -66,7 +66,7 @@ For commands, see [`docs/usage.md`](docs/usage.md). For image architecture and D
 
 The build workflow runs inside the selected builder Docker image and invokes `python3 scripts/build.py` directly; it does not start Docker inside the job. The generated `artifact/` directory therefore remains in the Actions workspace for upload and release creation.
 
-The workflow exposes a choice dropdown generated from the validated profile catalog. `scripts/sync-profile-workflow.py` generates it, and `.github/workflows/sync-profile-options.yml` verifies on `main` that the generated options are committed. When adding, removing or renaming a profile, run the generator and commit the resulting `.github/workflows/build.yml` change in the same pull request; otherwise the sync check fails and shows the diff.
+The build workflow has a manually maintained `profile` choice dropdown. When adding, removing, or renaming a profile, update the options in `.github/workflows/build.yml` in the same pull request. Profile catalog validation remains independent of the dropdown.
 
 ## License
 

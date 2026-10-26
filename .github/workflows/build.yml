@@ -9,7 +9,6 @@ on:
         default: archer-a9-v6-25.12.5
         type: choice
         options:
-          # BEGIN GENERATED PROFILE OPTIONS
           - archer-a9-v6-25.12
           - archer-a9-v6-25.12.5
           - archer-a9-v6-25.12.6
@@ -19,7 +18,6 @@ on:
           - x86-64-25.12.5
           - x86-64-25.12.6
           - x86-64-snapshot
-          # END GENERATED PROFILE OPTIONS
       builder_image:
         description: Docker image used as the OpenWrt build environment
         required: true

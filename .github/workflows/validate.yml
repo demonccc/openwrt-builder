@@ -29,10 +29,6 @@ jobs:
         run: python3 scripts/validate-profile-catalog.py
       - name: Test profile catalog
         run: python3 tests/test_profile_catalog.py
-      - name: Verify dropdown generation
-        run: |
-          python3 scripts/sync-profile-workflow.py
-          python3 scripts/sync-profile-workflow.py --check
 
   validate:
     runs-on: ubuntu-24.04
@@ -57,7 +53,7 @@ jobs:
             -e HOME=/tmp \
             -v "$GITHUB_WORKSPACE:/workspace" \
             "$IMAGE" \
-            python3 -m py_compile scripts/build.py scripts/validate-profile-catalog.py scripts/sync-profile-workflow.py tests/test_build.py tests/test_output_paths.py tests/test_profile_catalog.py
+            python3 -m py_compile scripts/build.py scripts/validate-profile-catalog.py tests/test_build.py tests/test_output_paths.py tests/test_profile_catalog.py
 
           docker run --rm \
             --user "$(id -u):$(id -g)" \

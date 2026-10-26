@@ -193,7 +193,7 @@ The practical fix is to classify the extra package: official runtime dependency,
 
 Run **Build OpenWrt firmware**. The job runs inside the selected builder Docker image and invokes `python3 scripts/build.py` directly. It does not run Docker-in-Docker; the generated `artifact/` directory stays in the Actions workspace for upload and release creation.
 
-The `profile` input is a choice dropdown generated from the validated catalog under `profiles/`.
+The `profile` input is a choice dropdown maintained in `.github/workflows/build.yml`.
 
 The workflow also exposes `builder_image` and `verbosity`. The default builder image is:
 
@@ -203,14 +203,7 @@ demonccc/openwrt-builder:latest
 
 Successful builds upload `artifact/` and create a GitHub Release containing the firmware and `BUILD_INFO`.
 
-When a profile is added, removed or renamed, regenerate and commit the dropdown in the same pull request:
-
-```bash
-python3 scripts/sync-profile-workflow.py
-python3 scripts/sync-profile-workflow.py --check
-```
-
-The generated options are the block between `BEGIN GENERATED PROFILE OPTIONS` and `END GENERATED PROFILE OPTIONS` in `.github/workflows/build.yml`. If a profile is added without updating that block, the `Sync build profile options` workflow fails and prints the diff so the author can commit the missing update. The workflow validates the result but does not push commits automatically and does not require `PROFILE_SYNC_TOKEN`.
+When adding, removing, or renaming a profile, edit the `profile` options in `.github/workflows/build.yml` in the same pull request. Use the profile directory name as the option value. If the default profile is removed, update `default` too. The catalog validator checks profiles themselves; it does not synchronize the dropdown.
 
 ## Locally built builder image
 

@@ -33,7 +33,7 @@ profiles/
     └── source-build-targets  # release-patched only
 ```
 
-`source-build-targets` is allowed only for `release-patched` profiles and is mandatory there. `files/` is optional for embedded root filesystem files.
+`source-build-targets` is allowed only for `release-patched` profiles and is mandatory there. `files/` is optional for embedded root filesystem files. The `feeds` file is required even when no extra feeds are needed: leave it empty or with comments only. Default OpenWrt feeds are read from the source tree. `FEED_NAMES` is an optional entry in `settings` that limits feed updates, not a substitute for the `feeds` file. See [the feed behavior by build mode](../docs/profiles.md#feeds).
 
 The catalog validator reuses the builder's normal settings/package/feed parsers and also checks the profile name against the configured OpenWrt source:
 

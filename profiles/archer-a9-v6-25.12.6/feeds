@@ -1,8 +1,8 @@
 # Additional OpenWrt feeds.
 #
 # This file uses the native OpenWrt feeds.conf syntax. Entries are appended to
-# feeds.conf.default before the builder updates the feeds named in FEED_NAMES
-# and installs only packages selected by this profile and their dependencies.
+# feeds.conf.default before the builder indexes the configured feeds and
+# registers only packages selected by this profile and their dependencies.
 #
 # Examples:
 # src-git myfeed https://github.com/example/openwrt-feed.git

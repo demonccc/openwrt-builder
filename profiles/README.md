@@ -50,15 +50,7 @@ The normal Docker validation workflow runs these checks automatically.
 
 ## GitHub Actions dropdown
 
-`.github/workflows/build.yml` contains generated profile choices between marker comments. Do not edit the list by hand.
-
-When adding, removing or renaming a profile:
-
-1. Run `python3 scripts/sync-profile-workflow.py`.
-2. Commit the resulting `.github/workflows/build.yml` change together with the profile change.
-3. Run `python3 scripts/sync-profile-workflow.py --check` to verify that the generated block is current.
-
-Pull-request CI validates the catalog and the generator. After changes land on `main`, `.github/workflows/sync-profile-options.yml` repeats the validation and fails with the generated diff if `.github/workflows/build.yml` is stale. It does not push commits automatically and does not require a repository token. This keeps profile additions reviewable in the same pull request and prevents an uncommitted workflow mutation on `main`.
+When adding, removing, or renaming a profile, edit the `profile` choices in `.github/workflows/build.yml` and commit that change with the profile. The option must match the profile directory name. If you remove the default profile, choose a new `default`. CI validates the profile catalog; workflow choices are maintained manually.
 
 ## Current examples
 

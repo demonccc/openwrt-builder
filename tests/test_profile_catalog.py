@@ -11,9 +11,9 @@ SPEC.loader.exec_module(CATALOG)
 
 class ProfileCatalogTests(unittest.TestCase):
     def test_versioned_profile_id_forms(self):
-        self.assertEqual(CATALOG.parse_profile_id("tplink-archer_a9_v6-25.12.5"), ("archer-a9-v6", "25.12.5", "release"))
-        self.assertEqual(CATALOG.parse_profile_id("tplink-archer_a9_v6-25.12"), ("archer-a9-v6", "25.12", "stable"))
-        self.assertEqual(CATALOG.parse_profile_id("generic-x86_64-snapshot"), ("x86-64", "snapshot", "snapshot"))
+        self.assertEqual(CATALOG.parse_profile_id("tplink-archer_a9_v6-25.12.5"), ("tplink-archer_a9_v6", "25.12.5", "release"))
+        self.assertEqual(CATALOG.parse_profile_id("tplink-archer_a9_v6-25.12"), ("tplink-archer_a9_v6", "25.12", "stable"))
+        self.assertEqual(CATALOG.parse_profile_id("generic-x86_64-snapshot"), ("generic-x86_64", "snapshot", "snapshot"))
 
     def test_rejects_profile_without_version(self):
         with self.assertRaisesRegex(ValueError, "X.Y.Z"):

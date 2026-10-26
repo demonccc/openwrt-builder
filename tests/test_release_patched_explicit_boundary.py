@@ -32,7 +32,7 @@ class ReleasePatchedExplicitBoundaryTests(unittest.TestCase):
             stub("parse_packages", return_value=(["base-files", package], []))
             stub("parse_simple_list", return_value=[declared_target])
             stub("prepare_source", return_value=(source, "patch-ref", [], "base-commit"))
-            stub("install_feed_packages")
+            feed_install = stub("install_feed_packages")
             stub("prepare_sdk", return_value=(sdk, "sdk-url", "auto"))
             stub("copy_files", return_value=False)
             stub("write_config")
@@ -54,6 +54,9 @@ class ReleasePatchedExplicitBoundaryTests(unittest.TestCase):
             BUILDER.build_release_patched("sample", profile, settings, None, root / "out", 2)
 
         sdk_targets.assert_called_once_with(source, sdk, [declared_target], [package])
+        feed_install.assert_called_once_with(
+            source, ["base-files", package], [], full=False, feed_names=[]
+        )
         sdk_compile.assert_called_once_with(sdk, [declared_target], 2)
         copied_apks.assert_called_once_with(sdk, official_ib, [package])
         inject_kernel.assert_called_once_with(device_kernel, source, official_ib)

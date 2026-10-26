@@ -7,4 +7,3 @@ TARGET=x86
 SUBTARGET=64
 DEVICE=generic
 SDK=none
-FEED_NAMES=packages luci routing

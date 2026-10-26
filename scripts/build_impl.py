@@ -1345,7 +1345,7 @@ def build_release_patched(profile_name, profile_dir, settings, source_ref, outpu
     source_dir, ref, feeds, base_commit = prepare_source(
         profile_name, profile_dir, settings, source_ref, [], full=False
     )
-    install_feed_packages(source_dir, [], [], full=True, feed_names=feeds)
+    install_feed_packages(source_dir, include, [], full=False, feed_names=feeds)
 
     sdk, sdk_url, sdk_mode = prepare_sdk(profile_name, settings)
     if not sdk:

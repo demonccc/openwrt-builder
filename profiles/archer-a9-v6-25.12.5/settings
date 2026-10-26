@@ -9,4 +9,3 @@ TARGET=ath79
 SUBTARGET=generic
 DEVICE=tplink_archer-a9-v6
 SDK=auto
-FEED_NAMES=packages luci routing

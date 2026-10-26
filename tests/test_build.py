@@ -13,6 +13,44 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(BUILDER)
 
 
+class FeedDiscoveryTests(unittest.TestCase):
+    def test_omitted_feed_names_uses_all_configured_feeds_for_selected_packages(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            profile = root / "profile"
+            profile.mkdir()
+            (profile / "git-packages").write_text("", encoding="utf-8")
+            source_checkout = root / "example" / "openwrt"
+            source_checkout.mkdir(parents=True)
+            (source_checkout / "feeds.conf.default").write_text("", encoding="utf-8")
+            (profile / "feeds").write_text(
+                "src-git custom https://example.com/feed.git\\n", encoding="utf-8"
+            )
+            settings = {
+                "BUILD_MODE": "selective-source",
+                "REPOSITORY": "https://example.com/openwrt.git",
+                "REF": "v1.2.3",
+            }
+            with (
+                patch.object(BUILDER, "WORK_DIR", root),
+                patch.object(BUILDER, "clone_ref"),
+                patch.object(BUILDER, "configure_download_cache"),
+                patch.object(BUILDER, "update_feeds") as update,
+                patch.object(BUILDER, "install_feed_packages") as install,
+                patch.object(BUILDER, "install_git_packages"),
+            ):
+                source, ref, feeds, base = BUILDER.prepare_source(
+                    "example", profile, settings, None, ["example-package"], full=False
+                )
+
+            self.assertEqual((ref, feeds, base), ("v1.2.3", [], None))
+            self.assertIn("src-git custom", (source / "feeds.conf.default").read_text())
+            update.assert_called_once_with(source, [])
+            install.assert_called_once_with(
+                source, ["example-package"], [], full=False, feed_names=[]
+            )
+
+
 class DeviceKernelResolutionTests(unittest.TestCase):
     def test_parses_selected_device_kernel_from_install_target(self):
         database = """install: /tmp/build_dir/target-mips/linux-ath79_generic/tplink_archer-a9-v6-kernel.bin other-target

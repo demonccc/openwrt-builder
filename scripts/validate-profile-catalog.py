@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 PROFILE_ID_RE = re.compile(
-    r"^(?P<device>[a-z0-9]+(?:-[a-z0-9]+)*)-(?P<version>\d+\.\d+\.\d+|\d+\.\d+|snapshot)$"
+    r"^(?P<device>[a-z0-9]+-[a-z0-9]+(?:_[a-z0-9]+)*)-(?P<version>\d+\.\d+\.\d+|\d+\.\d+|snapshot)$"
 )
 RELEASE_REF_RE = re.compile(r"^v?(\d+\.\d+\.\d+)$")
 STABLE_REF_RE = re.compile(r"^openwrt-(\d+\.\d+)(?:$|[-.].*)")
@@ -35,7 +35,7 @@ def parse_profile_id(profile_id: str) -> tuple[str, str, str]:
     match = PROFILE_ID_RE.fullmatch(profile_id)
     if not match:
         fail(
-            "profile ID must be <device>-<X.Y.Z|X.Y|snapshot> using lowercase letters, digits and hyphens"
+            "profile ID must be <vendor>-<model>-<X.Y.Z|X.Y|snapshot> using lowercase letters and digits, with underscores inside the model"
         )
     device = match.group("device")
     version = match.group("version")

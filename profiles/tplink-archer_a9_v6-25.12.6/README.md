@@ -23,4 +23,4 @@ Use [the dependency troubleshooting guide](../../docs/usage.md#dependency-expans
 
 Use this profile when you want a reproducible firmware based on one exact OpenWrt point release.
 
-For the moving OpenWrt 25.12 stable branch, use [`archer-a9-v6-25.12`](../archer-a9-v6-25.12/README.md).
+For the moving OpenWrt 25.12 stable branch, use [`tplink-archer_a9_v6-25.12`](../tplink-archer_a9_v6-25.12/README.md).

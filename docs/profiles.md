@@ -4,13 +4,13 @@ A profile is a directory under `profiles/` that describes one OpenWrt firmware b
 
 ## Profile naming
 
-Every profile ID must end with its OpenWrt source/version contract:
+Every profile ID specifies the vendor, model and OpenWrt version:
 
 ```text
-<device>-<X.Y.Z|X.Y|snapshot>
+<vendor>-<model>-<X.Y.Z|X.Y|snapshot>
 ```
 
-The suffix has one meaning only:
+Use lowercase letters and digits for the vendor and model; separate model parts with underscores. For vendorless targets, use `generic` (for example `generic-x86_64-snapshot`). The version suffix has one meaning only:
 
 - `X.Y.Z`: exact OpenWrt point release, such as `25.12.5`.
 - `X.Y`: moving stable branch for that release line, such as `openwrt-25.12`.
@@ -19,26 +19,31 @@ The suffix has one meaning only:
 Examples:
 
 ```text
-archer-a9-v6-25.12.5
-archer-a9-v6-25.12
-x86-64-snapshot
+tplink-archer_a9_v6-25.12.5
+tplink-archer_a9_v6-25.12
+generic-x86_64-snapshot
 ```
 
 Build mode is deliberately not encoded in the profile ID. A profile can use `imagebuilder`, `release-patched`, `selective-source`, or `full-source` internally without exposing that implementation detail in its public name.
 
 ## Profile structure
 
-Every profile contains:
+Profiles are independent build definitions:
 
 ```text
-README.md
-settings
-packages
-feeds
-git-packages
+profiles/
+└── <vendor>-<model>-<openwrt_version>/
+    ├── README.md
+    ├── settings
+    ├── packages
+    ├── feeds
+    ├── git-packages
+    └── source-build-targets  # release-patched only
 ```
 
 `source-build-targets` is mandatory only for `release-patched`. `files/` is optional and mirrors files into the generated root filesystem.
+
+For example, the TP-Link Archer A9 v6 on OpenWrt 25.12.6 lives in `profiles/tplink-archer_a9_v6-25.12.6/`. The folder name is also the `--profile` value and the build workflow choice. Existing GitHub Releases keep their historical tags; new releases use the new profile names.
 
 The catalog validator rejects unknown top-level entries, symlinks, malformed settings, duplicate packages, invalid feed declarations and invalid Git-package declarations.
 
@@ -79,8 +84,8 @@ No OpenWrt source packages compile. `packages` controls final firmware contents.
 
 Examples:
 
-- [`linksys-velop-whw03-v2-25.12.5`](../profiles/linksys-velop-whw03-v2-25.12.5/)
-- [`x86-64-24.10.5`](../profiles/x86-64-24.10.5/)
+- [`linksys-velop_whw03_v2-25.12.5`](../profiles/linksys-velop_whw03_v2-25.12.5/)
+- [`generic-x86_64-24.10.5`](../profiles/generic-x86_64-24.10.5/)
 
 ## 2. `release-patched`
 
@@ -149,7 +154,7 @@ UNCHANGED_PACKAGES=official-base-release
 
 If an APK required by the local allowlist was not produced, the builder fails instead of silently falling back to an unrelated local package set.
 
-Example: [`archer-a9-v6-25.12.5`](../profiles/archer-a9-v6-25.12.5/).
+Example: [`tplink-archer_a9_v6-25.12.5`](../profiles/tplink-archer_a9_v6-25.12.5/).
 
 ## 3. `selective-source`
 
@@ -165,13 +170,13 @@ DEVICE=generic
 
 Only packages selected for the firmware plus their dependencies compile from the chosen source tree. This mode does not enable the broad `CONFIG_ALL*` package universe.
 
-It may be used with an exact release, as in [`x86-64-25.12.5`](../profiles/x86-64-25.12.5/), or a moving stable branch, as in [`archer-a9-v6-25.12`](../profiles/archer-a9-v6-25.12/).
+It may be used with an exact release, as in [`generic-x86_64-25.12.5`](../profiles/generic-x86_64-25.12.5/), or a moving stable branch, as in [`tplink-archer_a9_v6-25.12`](../profiles/tplink-archer_a9_v6-25.12/).
 
 ## 4. `full-source`
 
 `full-source` accepts the same source machinery but enables the broad package universe with `CONFIG_ALL=y`, `CONFIG_ALL_KMODS=y`, and `CONFIG_ALL_NONSHARED=y`.
 
-Example: [`x86-64-snapshot`](../profiles/x86-64-snapshot/), which follows OpenWrt `main`.
+Example: [`generic-x86_64-snapshot`](../profiles/generic-x86_64-snapshot/), which follows OpenWrt `main`.
 
 ## SDK selection
 
